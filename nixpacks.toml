@@ -1,6 +1,5 @@
 [phases.setup]
-nixPkgs = ["python311", "tesseract", "tesseract-lang"]
-
+nixPkgs = ["python311", "tesseract4"]
 [phases.install]
 cmds = ["cd backend && pip install -r requirements.txt"]
 
