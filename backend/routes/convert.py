@@ -263,21 +263,16 @@ async def generate_front(
     photo_b64:   str = Form(...),
     fan_digits:  str = Form(""),
     field_nums:  str = Form("{}"),
+    ocr_lines:   str = Form("[]"),
     token: dict = Depends(verify_token)
 ):
     import json, base64
-    fn = json.loads(field_nums)
+    fn    = json.loads(field_nums)
+    lines = json.loads(ocr_lines)
+
     settings = firebase_get("settings") or {}
     p  = settings.get("pos",  {})
     sz = settings.get("size", {})
-
-    data    = await id_front.read()
-    img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    h, w    = img.shape[:2]
-    id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
-    gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-    text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
 
     def safe(n):
         idx = int(n)-1
@@ -328,21 +323,16 @@ async def generate_back(
     qr_b64:    str = Form(""),
     fin_digits: str = Form(""),
     field_nums: str = Form("{}"),
+    ocr_lines:  str = Form("[]"),
     token: dict = Depends(verify_token)
 ):
     import json, base64
-    fn = json.loads(field_nums)
+    fn    = json.loads(field_nums)
+    lines = json.loads(ocr_lines)
+
     settings = firebase_get("settings") or {}
     p_b  = settings.get("pos_back",  {})
     sz_b = settings.get("size_back", {})
-
-    data    = await id_back.read()
-    img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    h, w    = img.shape[:2]
-    id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
-    gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-    text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
 
     def safe(n):
         idx = int(n)-1
