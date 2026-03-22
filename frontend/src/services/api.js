@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: 'https://idconvertor-production.up.railway.app/api',
+  baseURL: process.env.REACT_APP_API_URL || '/api',
 });
 
 API.interceptors.request.use(cfg => {
