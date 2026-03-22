@@ -283,7 +283,6 @@ async def crop_profile(file: UploadFile = File(...), token: dict = Depends(verif
 
 @router.post("/generate/front")
 async def generate_front(
-    id_front:    UploadFile = File(...),
     photo_b64:   str = Form(...),
     fan_digits:  str = Form(""),
     field_nums:  str = Form("{}"),
@@ -336,14 +335,13 @@ async def generate_front(
         bg.paste(ph_im, (px_v, py_v), ph_im.split()[3])
 
     buf = io.BytesIO()
-    bg.save(buf, format="PNG")
+    bg.save(buf, format="JPEG", quality=90, optimize=True)
     buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png",
-        headers={"Content-Disposition": "attachment; filename=front.png"})
+    return StreamingResponse(buf, media_type="image/jpeg",
+        headers={"Content-Disposition": "attachment; filename=front.jpg"})
 
 @router.post("/generate/back")
 async def generate_back(
-    id_back:    UploadFile = File(...),
     qr_b64:    str = Form(""),
     fin_digits: str = Form(""),
     field_nums: str = Form("{}"),
@@ -395,7 +393,7 @@ async def generate_back(
         bg.paste(qr_im.resize((qw,qh), Image.LANCZOS), (qx,qy))
 
     buf = io.BytesIO()
-    bg.save(buf, format="PNG")
+    bg.save(buf, format="JPEG", quality=90, optimize=True)
     buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png",
-        headers={"Content-Disposition": "attachment; filename=back.png"})
+    return StreamingResponse(buf, media_type="image/jpeg",
+        headers={"Content-Disposition": "attachment; filename=back.jpg"})
