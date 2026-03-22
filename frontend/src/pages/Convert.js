@@ -117,6 +117,7 @@ export default function Convert() {
       fd.append('photo_b64',  photob64);
       fd.append('fan_digits', fanManual);
       fd.append('field_nums', JSON.stringify(fn));
+      fd.append('ocr_lines',  JSON.stringify(frontLines));
       const resp = await API.post('/convert/generate/front', fd, { responseType:'blob' });
       setFrontResult(URL.createObjectURL(resp.data));
       toast.success('Front ID ተዘጋጀ! 🎉');
@@ -134,6 +135,7 @@ export default function Convert() {
       fd.append('qr_b64',    qrb64);
       fd.append('fin_digits', finManual);
       fd.append('field_nums', JSON.stringify(bn));
+      fd.append('ocr_lines',  JSON.stringify(backLines));
       const resp = await API.post('/convert/generate/back', fd, { responseType:'blob' });
       setBackResult(URL.createObjectURL(resp.data));
       toast.success('Back ID ተዘጋጀ! 🎉');
