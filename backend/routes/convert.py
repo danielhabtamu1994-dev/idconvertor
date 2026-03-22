@@ -27,12 +27,36 @@ def is_ethiopic(char):
     cp = ord(char)
     return 0x1200 <= cp <= 0x137F or 0xAB00 <= cp <= 0xAB2F or 0x2D80 <= cp <= 0x2DDF
 
+# ── Font cache ───────────────────────────────────────────────────
+_font_cache = {}
+def get_font(path, size):
+    key = (path, size)
+    if key not in _font_cache:
+        try:
+            _font_cache[key] = ImageFont.truetype(path, size)
+        except:
+            _font_cache[key] = ImageFont.load_default()
+    return _font_cache[key]
+
+# ── Preload background images ─────────────────────────────────────
+_bg_front = None
+_bg_back  = None
+
+def get_bg_front():
+    global _bg_front
+    if _bg_front is None:
+        _bg_front = Image.open(BG_PATH).convert("RGB")
+    return _bg_front.copy()
+
+def get_bg_back():
+    global _bg_back
+    if _bg_back is None:
+        _bg_back = Image.open(BG_PATH_BACK).convert("RGB")
+    return _bg_back.copy()
+
 def draw_smart_text(draw, pos, text, size_amh=32, size_eng=28, fill=(45,25,5)):
-    try:
-        f_amh = ImageFont.truetype(FONT_AMH, size_amh)
-        f_eng = ImageFont.truetype(FONT_ENG, size_eng)
-    except:
-        f_amh = f_eng = ImageFont.load_default()
+    f_amh = get_font(FONT_AMH, size_amh)
+    f_eng = get_font(FONT_ENG, size_eng)
     x, y = pos
     if not text: return
     cur_script = 'amh' if is_ethiopic(text[0]) else 'eng'
@@ -278,7 +302,7 @@ async def generate_front(
         idx = int(n)-1
         return lines[idx] if 0 <= idx < len(lines) else ""
 
-    bg   = Image.open(BG_PATH).convert("RGB")
+    bg   = get_bg_front()
     draw = ImageDraw.Draw(bg)
     tc   = (45,25,5)
 
@@ -338,7 +362,7 @@ async def generate_back(
         idx = int(n)-1
         return lines[idx] if 0 <= idx < len(lines) else ""
 
-    bg   = Image.open(BG_PATH_BACK).convert("RGB")
+    bg   = get_bg_back()
     draw = ImageDraw.Draw(bg)
     tc   = (45,25,5)
 
