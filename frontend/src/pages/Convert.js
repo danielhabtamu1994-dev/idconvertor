@@ -113,7 +113,6 @@ export default function Convert() {
     setLoad('gen_front', true);
     try {
       const fd = new FormData();
-      fd.append('id_front',   frontFile);
       fd.append('photo_b64',  photob64);
       fd.append('fan_digits', fanManual);
       fd.append('field_nums', JSON.stringify(fn));
@@ -131,7 +130,6 @@ export default function Convert() {
     setLoad('gen_back', true);
     try {
       const fd = new FormData();
-      fd.append('id_back',    backFile);
       fd.append('qr_b64',    qrb64);
       fd.append('fin_digits', finManual);
       fd.append('field_nums', JSON.stringify(bn));
