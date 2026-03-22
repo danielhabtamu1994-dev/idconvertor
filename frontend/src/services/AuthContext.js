@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import API from './api';
 
 const AuthContext = createContext(null);
 
@@ -8,10 +9,21 @@ export function AuthProvider({ children }) {
     return u ? JSON.parse(u) : null;
   });
 
-  const login = (token, role, username) => {
+  // Refresh balance from server on load
+  useEffect(() => {
+    if (!user) return;
+    API.get('/auth/me').then(({ data }) => {
+      const updated = { ...user, balance: data.balance };
+      setUser(updated);
+      localStorage.setItem('user', JSON.stringify(updated));
+    }).catch(() => {});
+  }, []);
+
+  const login = (token, role, username, balance = 0) => {
     localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify({ role, username }));
-    setUser({ role, username });
+    const u = { role, username, balance };
+    localStorage.setItem('user', JSON.stringify(u));
+    setUser(u);
   };
 
   const logout = () => {
@@ -19,8 +31,17 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const refreshBalance = async () => {
+    try {
+      const { data } = await API.get('/auth/me');
+      const updated = { ...user, balance: data.balance };
+      setUser(updated);
+      localStorage.setItem('user', JSON.stringify(updated));
+    } catch {}
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, refreshBalance }}>
       {children}
     </AuthContext.Provider>
   );
