@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
 
   const login = (token, role, username, balance = 0) => {
     localStorage.setItem('token', token);
-    const u = { role, username, balance };
+    const u = { role, username, phone: username, balance };
     localStorage.setItem('user', JSON.stringify(u));
     setUser(u);
   };
