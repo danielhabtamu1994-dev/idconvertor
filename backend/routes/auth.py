@@ -50,6 +50,16 @@ class DepositRequestModel(BaseModel):
 # ── Helpers ─────────────────────────────────────────────────────
 def hash_pw(p): return hashlib.sha256(p.encode()).hexdigest()
 
+def generate_ref_code():
+    import random
+    agents = firebase_get("agents") or {}
+    used = {v.get("ref_code") for v in agents.values() if v.get("ref_code")}
+    for _ in range(100):
+        code = str(random.randint(1000, 9999))
+        if code not in used:
+            return code
+    return str(random.randint(1000, 9999))
+
 def norm_phone(p: str) -> str:
     p = re.sub(r'\s+', '', p)
     if p.startswith('+251'): p = '0' + p[4:]
@@ -94,10 +104,8 @@ def signup(req: SignupRequest):
     }
     firebase_set("users", users)
     if req.referral_code:
-        agents = firebase_get("agents") or {}
-        if req.referral_code in agents:
-            agents[req.referral_code]["count"] = agents[req.referral_code].get("count", 0) + 1
-            firebase_set("agents", agents)
+        users[phone]["referred_by"] = req.referral_code
+        firebase_set("users", users)
     token = create_token(phone, "user")
     return {"token": token, "role": "user", "phone": phone, "balance": 0}
 
@@ -196,6 +204,7 @@ def deduct(req: DeductRequest, token=Depends(verify_token)):
     if current < req.amount:
         raise HTTPException(400, "በቂ ብር የለም")
     users[phone]["balance"] = current - req.amount
+    users[phone]["ids_generated"] = user.get("ids_generated", 0) + 1
     firebase_set("users", users)
     return {"balance": users[phone]["balance"]}
 
@@ -267,12 +276,22 @@ def agent_stats(token=Depends(verify_token)):
         raise HTTPException(403, "Agent only")
     phone  = token["sub"]
     agents = firebase_get("agents") or {}
-    data   = agents.get(phone, {"count": 0})
+    data   = agents.get(phone, {})
+    if "ref_code" not in data:
+        data["ref_code"] = generate_ref_code()
+        agents[phone] = data
+        firebase_set("agents", agents)
+    ref_code = data["ref_code"]
+    users = firebase_get("users") or {}
+    referred = [u for u in users.values() if u.get("referred_by") == ref_code]
+    id_count = sum(u.get("ids_generated", 0) for u in referred)
     return {
         "phone":          phone,
-        "referral_code":  phone,
-        "referral_count": data.get("count", 0),
-        "referral_link":  f"https://idconvertor.com/login?ref={phone}",
+        "referral_code":  ref_code,
+        "referral_count": len(referred),
+        "id_count":       id_count,
+        "earnings":       id_count * 5,
+        "referral_link":  f"https://idconvertor.vercel.app/login?ref={ref_code}",
     }
 
 # ── Deposit settings ─────────────────────────────────────────────
