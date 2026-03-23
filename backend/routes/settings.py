@@ -11,6 +11,8 @@ class SettingsPayload(BaseModel):
     size:       dict[str, Any]
     pos_back:   dict[str, Any]
     size_back:  dict[str, Any]
+    nat_am:     str = "ኢትዮጵያዊ"
+    nat_en:     str = "Ethiopian" 
 
 @router.get("/")
 def load_settings(token: dict = Depends(verify_token)):
