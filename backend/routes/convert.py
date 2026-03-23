@@ -225,30 +225,42 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
 @router.post("/profile/crop")
 async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
     import base64
-    data  = await file.read()
-    img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    card  = extract_white_card(img) or img
+    try:
+        data = await file.read()
+        img  = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(status_code=400, detail="Invalid image file")
 
-    photo_crop = crop_photo_from_card(card)
-    qr_crop    = crop_qr_from_card(card)
+        card       = extract_white_card(img) or img
+        photo_crop = crop_photo_from_card(card)
+        qr_crop    = crop_qr_from_card(card)
 
-    bgra = remove_background(photo_crop)
-    if bgra is None:
-        gray = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-        bw   = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        bgra = cv2.cvtColor(bw, cv2.COLOR_BGR2BGRA)
-        bgra[:,:,3] = 255
+        if photo_crop is None or photo_crop.size == 0:
+            raise HTTPException(status_code=422, detail="ፎቶ ማግኘት አልተቻለም — ምስሉን ያረጋግጡ")
+        if qr_crop is None or qr_crop.size == 0:
+            raise HTTPException(status_code=422, detail="QR ማግኘት አልተቻለም")
 
-    photo_pil = Image.fromarray(cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA), 'RGBA')
-    photo_buf = io.BytesIO(); photo_pil.save(photo_buf, format="PNG")
+        bgra = remove_background(photo_crop)
+        if bgra is None:
+            gray = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
+            bw   = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            bgra = cv2.cvtColor(bw, cv2.COLOR_BGR2BGRA)
+            bgra[:,:,3] = 255
 
-    qr_pil = Image.fromarray(cv2.cvtColor(qr_crop, cv2.COLOR_BGR2RGB))
-    qr_buf = io.BytesIO(); qr_pil.save(qr_buf, format="PNG")
+        photo_pil = Image.fromarray(cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA), 'RGBA')
+        photo_buf = io.BytesIO(); photo_pil.save(photo_buf, format="PNG")
 
-    return {
-        "photo_b64": base64.b64encode(photo_buf.getvalue()).decode(),
-        "qr_b64":    base64.b64encode(qr_buf.getvalue()).decode(),
-    }
+        qr_pil = Image.fromarray(cv2.cvtColor(qr_crop, cv2.COLOR_BGR2RGB))
+        qr_buf = io.BytesIO(); qr_pil.save(qr_buf, format="PNG")
+
+        return {
+            "photo_b64": base64.b64encode(photo_buf.getvalue()).decode(),
+            "qr_b64":    base64.b64encode(qr_buf.getvalue()).decode(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Crop error: {str(e)}")
 
 @router.post("/generate/front")
 async def generate_front(
