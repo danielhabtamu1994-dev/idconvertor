@@ -33,6 +33,9 @@ export default function Convert() {
 
   const [fanManual, setFanManual] = useState('');
   const [finManual, setFinManual] = useState('');
+  const [snVal,      setSnVal]      = useState('');
+  const [natAm,      setNatAm]      = useState('ኢትዮጵያዊ');
+  const [natEn,      setNatEn]      = useState('Ethiopian');
   const [photob64,  setPhotob64]  = useState('');
   const [qrb64,     setQrb64]    = useState('');
 
@@ -111,6 +114,12 @@ export default function Convert() {
     if (!backFile)  return toast.error('ID Back ያስገቡ');
     if ((user?.balance ?? 0) < 20) return toast.error('በቂ ብር የለም — Deposit አድርጉ');
 
+    // Generate SN: 7 digits starting with 6 or 7
+    const prefix  = Math.random() < 0.5 ? '6' : '7';
+    const suffix  = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+    const newSn   = prefix + suffix;
+    setSnVal(newSn);
+
     setGenerating(true);
     setMergedResult('');
     try {
@@ -129,6 +138,9 @@ export default function Convert() {
       fdB.append('fin_digits', finManual);
       fdB.append('field_nums', JSON.stringify(bn));
       fdB.append('ocr_lines',  JSON.stringify(backLines));
+      fdB.append('sn_val',    newSn);
+      fdB.append('nat_am',    natAm);
+      fdB.append('nat_en',    natEn);
       const respB = await API.post('/convert/generate/back', fdB, { responseType:'blob' });
       const backUrl = URL.createObjectURL(respB.data);
 
@@ -180,6 +192,21 @@ export default function Convert() {
           <UploadBox label="📸 ID Front"     file={frontFile}   loading={loading.ocr_front} onChange={setFrontFile}/>
           <UploadBox label="📸 ID Back"      file={backFile}    loading={loading.ocr_back}  onChange={setBackFile}/>
           <UploadBox label="📷 Profile & QR" file={profileFile} loading={loading.crop}       onChange={setProfileFile}/>
+        </div>
+      </div>
+
+      {/* Nationality */}
+      <div className="card">
+        <p style={{fontSize:13,fontWeight:600,marginBottom:8}}>🌍 ዜግነት</p>
+        <div className="grid-2">
+          <div className="form-group" style={{marginBottom:0}}>
+            <label>አማርኛ</label>
+            <input className="form-input" value={natAm} onChange={e=>setNatAm(e.target.value)} placeholder="ኢትዮጵያዊ"/>
+          </div>
+          <div className="form-group" style={{marginBottom:0}}>
+            <label>English</label>
+            <input className="form-input" value={natEn} onChange={e=>setNatEn(e.target.value)} placeholder="Ethiopian"/>
+          </div>
         </div>
       </div>
 
