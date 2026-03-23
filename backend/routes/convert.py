@@ -227,7 +227,8 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     import base64
     data  = await file.read()
     img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    card  = extract_white_card(img) or img
+    _card = extract_white_card(img)
+card  = _card if _card is not None else img
 
     photo_crop = crop_photo_from_card(card)
     qr_crop    = crop_qr_from_card(card)
