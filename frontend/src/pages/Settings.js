@@ -22,6 +22,7 @@ const DEFAULT_SIZE_BACK = {
 const FRONT_FIELDS = [
   ['amh','አማርኛ ስም'],['eng','እንግሊዝኛ ስም'],['dob','የትውልድ ቀን'],
   ['sex','ፆታ'],['exp','ቀን ማብቂያ'],['fan','🔖 FAN'],
+  ['iss_greg','📅 Date of Issue (Eng)'],['iss_et','📅 የተሰጠበት ቀን (አማ)'],
 ];
 const BACK_FIELDS = [
   ['phone','📞 ስልክ'],['fin','🔢 FIN'],
@@ -29,15 +30,18 @@ const BACK_FIELDS = [
   ['zone_amh','🗺️ ዞን (አማ)'],['zone_eng','🗺️ ዞን (Eng)'],
   ['woreda_amh','📍 ወረዳ (አማ)'],['woreda_amh_num','📍 ወረዳ ቁጥር'],
   ['woreda_eng','📍 ወረዳ (Eng)'],
+  ['sn','🔢 SN (7 ዲጂት)'],['nat_am','🌍 ዜግነት (አማ)'],['nat_en','🌍 ዜግነት (Eng)'],
 ];
 const SAMPLE_FRONT = {
   amh:'ዳኒኤል ሀብታሙ',eng:'Daniel Habtamu',dob:'1994-03-21',
   sex:'Male',exp:'2030-03-21',fan:'1462 6858 6588 5576',
+  iss_greg:'23/03/2026',iss_et:'14/ሚያዝያ/2018',
 };
 const SAMPLE_BACK = {
   phone:'0912345678',fin:'1234-5678-9012',addr_amh:'አዲስ አበባ',
   addr_eng:'Addis Ababa',zone_amh:'ቦሌ ዞን',zone_eng:'Bole Zone',
   woreda_amh:'ወረዳ',woreda_amh_num:'08',woreda_eng:'Woreda 08',
+  sn:'6123456',nat_am:'ኢትዮጵያዊ',nat_en:'Ethiopian',
 };
 
 function N({ value, onChange }) {
@@ -53,27 +57,23 @@ function PreviewCanvas({ tab, pos, size, posBack, sizeBack, bgFront, bgBack }) {
     const c = ref.current; if (!c) return;
     const ctx = c.getContext('2d');
     const bg  = tab==='front' ? bgFront : bgBack;
-    if (!bg) {
-      c.height = 300;
-      ctx.fillStyle='#f1f5f9'; ctx.fillRect(0,0,c.width,c.height);
-      ctx.fillStyle='#94a3b8'; ctx.font='13px Inter'; ctx.textAlign='center';
-      ctx.fillText('Background ምስል ያስገቡ', c.width/2, 150);
-      return;
-    }
-    const img = new Image();
-    img.onload = () => {
-      const s = c.width/img.naturalWidth;
-      c.height = img.naturalHeight*s;
-      ctx.drawImage(img,0,0,c.width,c.height);
+    // BG_W/BG_H = actual background image dimensions
+    const BG_W = 3264, BG_H = 1854;
+
+    const draw = (s) => {
       ctx.textBaseline='top';
       if (tab==='front') {
         [['amh',SAMPLE_FRONT.amh],['eng',SAMPLE_FRONT.eng],['dob',SAMPLE_FRONT.dob],
-         ['sex',SAMPLE_FRONT.sex],['exp',SAMPLE_FRONT.exp],['fan',SAMPLE_FRONT.fan]].forEach(([k,t])=>{
+         ['sex',SAMPLE_FRONT.sex],['exp',SAMPLE_FRONT.exp],
+         ['iss_greg',SAMPLE_FRONT.iss_greg],['iss_et',SAMPLE_FRONT.iss_et]].forEach(([k,t])=>{
           ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${(size[k]||28)*s}px Inter`;
           ctx.fillText(t,pos[`${k}_x`]*s,pos[`${k}_y`]*s);
         });
+        // FAN
+        ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${(size.fan||28)*s}px Inter`;
+        ctx.fillText(SAMPLE_FRONT.fan, pos.fan_x*s, pos.fan_y*s);
         // barcode placeholder
-        const bx=pos.fan_bc_x*s,by=pos.fan_bc_y*s,bw=pos.fan_bc_w*s,bh=size.fan_bc*s;
+        const bx=pos.fan_bc_x*s,by=pos.fan_bc_y*s,bw=(pos.fan_bc_w||300)*s,bh=(size.fan_bc||120)*s;
         ctx.fillStyle='#000';
         for(let i=0;i<30;i++){if(i%3===0)continue;ctx.fillRect(bx+(bw/30)*i,by,(bw/30)*.7,bh);}
         // photo placeholder
@@ -87,7 +87,8 @@ function PreviewCanvas({ tab, pos, size, posBack, sizeBack, bgFront, bgBack }) {
          ['addr_amh',SAMPLE_BACK.addr_amh],['addr_eng',SAMPLE_BACK.addr_eng],
          ['zone_amh',SAMPLE_BACK.zone_amh],['zone_eng',SAMPLE_BACK.zone_eng],
          ['woreda_amh',SAMPLE_BACK.woreda_amh],['woreda_amh_num',SAMPLE_BACK.woreda_amh_num],
-         ['woreda_eng',SAMPLE_BACK.woreda_eng]].forEach(([k,t])=>{
+         ['woreda_eng',SAMPLE_BACK.woreda_eng],
+         ['sn',SAMPLE_BACK.sn],['nat_am',SAMPLE_BACK.nat_am],['nat_en',SAMPLE_BACK.nat_en]].forEach(([k,t])=>{
           const xk=k==='woreda_amh_num'?'woreda_amh_num_x':`${k}_x`;
           const yk=k==='woreda_amh_num'?'woreda_amh_num_y':`${k}_y`;
           ctx.fillStyle='rgba(45,25,5,.9)';ctx.font=`bold ${(sizeBack[k]||28)*s}px Inter`;
@@ -99,6 +100,24 @@ function PreviewCanvas({ tab, pos, size, posBack, sizeBack, bgFront, bgBack }) {
         ctx.fillText('QR',(posBack.qr_x+posBack.qr_w/2)*s,(posBack.qr_y+posBack.qr_h/2)*s);
         ctx.textAlign='left';
       }
+    };
+
+    if (!bg) {
+      const s = c.width / BG_W;
+      c.height = BG_H * s;
+      ctx.fillStyle='#e2e8f0'; ctx.fillRect(0,0,c.width,c.height);
+      ctx.fillStyle='#94a3b8'; ctx.font='13px Inter'; ctx.textAlign='center';
+      ctx.fillText('Background ምስል ያስገቡ', c.width/2, 20);
+      ctx.textAlign='left';
+      draw(s);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const s = c.width/img.naturalWidth;
+      c.height = img.naturalHeight*s;
+      ctx.drawImage(img,0,0,c.width,c.height);
+      draw(s);
     };
     img.src=bg;
   },[tab,pos,size,posBack,sizeBack,bgFront,bgBack]);
