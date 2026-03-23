@@ -227,8 +227,7 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     import base64
     data  = await file.read()
     img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    _card = extract_white_card(img)
-    card  = _card if _card is not None else img
+    card  = extract_white_card(img) or img
 
     photo_crop = crop_photo_from_card(card)
     qr_crop    = crop_qr_from_card(card)
@@ -251,6 +250,23 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
         "qr_b64":    base64.b64encode(qr_buf.getvalue()).decode(),
     }
 
+
+def gregorian_to_ethiopian(year, month, day):
+    import datetime as _dt2
+    d  = _dt2.date(year, month, day)
+    ny = _dt2.date(year, 9, 11)
+    if d < ny:
+        et_year = year - 8
+        ny      = _dt2.date(year - 1, 9, 11)
+    else:
+        et_year = year - 7
+    delta    = (d - ny).days
+    et_month = delta // 30 + 1
+    et_day   = delta % 30 + 1
+    ET_MONTHS = ['መስከረም','ጥቅምት','ህዳር','ታህሳስ','ጥር','የካቲት','መጋቢት','ሚያዝያ','ግንቦት','ሰኔ','ሐምሌ','ነሐሴ','ጳጉሜን']
+    m_name = ET_MONTHS[et_month - 1] if 1 <= et_month <= 13 else ''
+    return f"{et_day:02d}/{m_name}/{et_year}", f"{et_day:02d}/{et_month:02d}/{et_year}"
+
 @router.post("/generate/front")
 async def generate_front(
     photo_b64:  str = Form(...),
@@ -259,12 +275,17 @@ async def generate_front(
     ocr_lines:  str = Form("[]"),
     token=Depends(verify_token)
 ):
-    import json, base64
+    import json, base64, datetime as _dt
     fn    = json.loads(field_nums)
     lines = json.loads(ocr_lines)
     s     = firebase_get("settings") or {}
     p     = s.get("pos",  {})
     sz    = s.get("size", {})
+
+    # Auto dates
+    today     = _dt.date.today()
+    greg_str  = today.strftime("%d/%m/%Y")
+    et_str, _ = gregorian_to_ethiopian(today.year, today.month, today.day)
 
     def safe(n):
         idx = int(n)-1
@@ -279,6 +300,10 @@ async def generate_front(
     draw_smart_text(draw, (p.get('dob_x',700),p.get('dob_y',390)), safe(fn.get('dob_n',8)),  sz.get('dob',28),sz.get('dob',28),tc)
     draw_smart_text(draw, (p.get('sex_x',620),p.get('sex_y',470)), safe(fn.get('sex_n',10)), sz.get('sex',28),sz.get('sex',28),tc)
     draw_smart_text(draw, (p.get('exp_x',710),p.get('exp_y',555)), safe(fn.get('exp_n',12)), sz.get('exp',28),sz.get('exp',28),tc)
+    # Date of Issue (Gregorian)
+    draw_smart_text(draw, (p.get('iss_greg_x',620),p.get('iss_greg_y',600)), greg_str, sz.get('iss_greg',24),sz.get('iss_greg',24),tc)
+    # የተሰጠበት ቀን (Ethiopian)
+    draw_smart_text(draw, (p.get('iss_et_x',620),p.get('iss_et_y',630)), et_str, sz.get('iss_et',24),sz.get('iss_et',24),tc)
 
     fan_d = ''.join(c for c in fan_digits if c.isdigit())
     if fan_d:
@@ -306,6 +331,9 @@ async def generate_back(
     fin_digits: str = Form(""),
     field_nums: str = Form("{}"),
     ocr_lines:  str = Form("[]"),
+    sn_val:     str = Form(""),
+    nat_am:     str = Form(""),
+    nat_en:     str = Form(""),
     token=Depends(verify_token)
 ):
     import json, base64
@@ -339,6 +367,16 @@ async def generate_back(
     draw_smart_text(draw,(p_b.get('woreda_amh_x',620),   p_b.get('woreda_amh_y',460)),   woreda_text,                   sz_b.get('woreda_amh',28),  sz_b.get('woreda_amh',28),  tc)
     draw_smart_text(draw,(p_b.get('woreda_amh_num_x',750),p_b.get('woreda_amh_num_y',460)),woreda_num,                  sz_b.get('woreda_amh_num',28),sz_b.get('woreda_amh_num',28),tc)
     draw_smart_text(draw,(p_b.get('woreda_eng_x',620),   p_b.get('woreda_eng_y',500)),   safe(fn.get('woreda_eng_n',12)),sz_b.get('woreda_eng',28), sz_b.get('woreda_eng',28),  tc)
+
+    # SN
+    if sn_val:
+        draw_smart_text(draw,(p_b.get('sn_x',620),p_b.get('sn_y',560)), sn_val, sz_b.get('sn',24),sz_b.get('sn',24),tc)
+    # ዜግነት Amharic
+    if nat_am:
+        draw_smart_text(draw,(p_b.get('nat_am_x',620),p_b.get('nat_am_y',590)), nat_am, sz_b.get('nat_am',24),sz_b.get('nat_am',24),tc)
+    # ዜግነት English
+    if nat_en:
+        draw_smart_text(draw,(p_b.get('nat_en_x',620),p_b.get('nat_en_y',615)), nat_en, sz_b.get('nat_en',24),sz_b.get('nat_en',24),tc)
 
     if qr_b64:
         qr_im = Image.open(io.BytesIO(base64.b64decode(qr_b64))).convert("RGB")
