@@ -10,8 +10,8 @@ router = APIRouter()
 
 FONT_AMH     = os.getenv("FONT_AMH",     "AbyssinicaSIL-Regular.ttf")
 FONT_ENG     = os.getenv("FONT_ENG",     "Inter_18pt-Bold.ttf")
-BG_PATH      = os.getenv("BG_PATH",      "id_front1.jpg")
-BG_PATH_BACK = os.getenv("BG_PATH_BACK", "id_back1.jpg")
+BG_PATH      = os.getenv("BG_PATH",      "20260319_215211.jpg")
+BG_PATH_BACK = os.getenv("BG_PATH_BACK", "20260319_211337.jpg")
 REMOVE_BG_KEY = os.getenv("REMOVE_BG_KEY", "")
 
 # ── Font cache ───────────────────────────────────────────────────
