@@ -172,8 +172,7 @@ def crop_photo_from_card(card):
     else:
         crop = card[:ch//2,:]
     ph, pw = crop.shape[:2]
-    pad = 5 if (ph > 10 and pw > 10) else 0
-    return crop[pad:ph-pad, pad:pw-pad] if pad else crop
+    return crop[5:ph-5, 5:pw-5]
 
 def crop_qr_from_card(card, margin=18):
     gray = cv2.cvtColor(card, cv2.COLOR_BGR2GRAY)
@@ -228,7 +227,8 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     import base64
     data  = await file.read()
     img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    card  = extract_white_card(img) or img
+    _card = extract_white_card(img)
+    card  = _card if _card is not None else img
 
     photo_crop = crop_photo_from_card(card)
     qr_crop    = crop_qr_from_card(card)
