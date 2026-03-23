@@ -227,9 +227,7 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     import base64
     data  = await file.read()
     img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    _card = extract_white_card(img)
-    card  = _card if _card is not None else img
-
+    card  = extract_white_card(img) or img
 
     photo_crop = crop_photo_from_card(card)
     qr_crop    = crop_qr_from_card(card)
@@ -265,9 +263,12 @@ def gregorian_to_ethiopian(year, month, day):
     delta    = (d - ny).days
     et_month = delta // 30 + 1
     et_day   = delta % 30 + 1
-    ET_MONTHS = ['መስከረም','ጥቅምት','ህዳር','ታህሳስ','ጥር','የካቲት','መጋቢት','ሚያዝያ','ግንቦት','ሰኔ','ሐምሌ','ነሐሴ','ጳጉሜን']
-    m_name = ET_MONTHS[et_month - 1] if 1 <= et_month <= 13 else ''
-    return f"{et_day:02d}/{m_name}/{et_year}", f"{et_day:02d}/{et_month:02d}/{et_year}"
+    # Ethiopian: day/month_number/year  e.g. 14/07/2018
+    et_str = f"{et_day:02d}/{et_month:02d}/{et_year}"
+    # Gregorian with word month e.g. 23/Mar/2026
+    ENG_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    greg_str = f"{day:02d}/{ENG_MONTHS[month-1]}/{year}"
+    return et_str, greg_str
 
 @router.post("/generate/front")
 async def generate_front(
@@ -302,10 +303,20 @@ async def generate_front(
     draw_smart_text(draw, (p.get('dob_x',700),p.get('dob_y',390)), safe(fn.get('dob_n',8)),  sz.get('dob',28),sz.get('dob',28),tc)
     draw_smart_text(draw, (p.get('sex_x',620),p.get('sex_y',470)), safe(fn.get('sex_n',10)), sz.get('sex',28),sz.get('sex',28),tc)
     draw_smart_text(draw, (p.get('exp_x',710),p.get('exp_y',555)), safe(fn.get('exp_n',12)), sz.get('exp',28),sz.get('exp',28),tc)
-    # Date of Issue (Gregorian)
-    draw_smart_text(draw, (p.get('iss_greg_x',620),p.get('iss_greg_y',600)), greg_str, sz.get('iss_greg',24),sz.get('iss_greg',24),tc)
-    # የተሰጠበት ቀን (Ethiopian)
-    draw_smart_text(draw, (p.get('iss_et_x',620),p.get('iss_et_y',630)), et_str, sz.get('iss_et',24),sz.get('iss_et',24),tc)
+    # Date of Issue — rotated 90° (vertical, like on real ID)
+    def draw_rotated(bg_img, text, x, y, font_size, fill):
+        from PIL import Image as _Img, ImageDraw as _IDraw, ImageFont as _IFont
+        f = get_font(FONT_ENG, font_size)
+        bbox = f.getbbox(text)
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+        tmp = _Img.new('RGBA', (tw+4, th+4), (0,0,0,0))
+        td  = _IDraw.Draw(tmp)
+        td.text((2,2), text, font=f, fill=fill)
+        rotated = tmp.rotate(90, expand=True)
+        bg_img.paste(rotated, (x, y), rotated)
+
+    draw_rotated(bg, greg_str, int(p.get('iss_greg_x',30)), int(p.get('iss_greg_y',100)), int(sz.get('iss_greg',22)), tc)
+    draw_rotated(bg, et_str,   int(p.get('iss_et_x',55)),  int(p.get('iss_et_y',100)),  int(sz.get('iss_et',22)),   tc)
 
     fan_d = ''.join(c for c in fan_digits if c.isdigit())
     if fan_d:
@@ -373,12 +384,13 @@ async def generate_back(
     # SN
     if sn_val:
         draw_smart_text(draw,(p_b.get('sn_x',620),p_b.get('sn_y',560)), sn_val, sz_b.get('sn',24),sz_b.get('sn',24),tc)
-    # ዜግነት Amharic
-    if nat_am:
-        draw_smart_text(draw,(p_b.get('nat_am_x',620),p_b.get('nat_am_y',590)), nat_am, sz_b.get('nat_am',24),sz_b.get('nat_am',24),tc)
-    # ዜግነት English
-    if nat_en:
-        draw_smart_text(draw,(p_b.get('nat_en_x',620),p_b.get('nat_en_y',615)), nat_en, sz_b.get('nat_en',24),sz_b.get('nat_en',24),tc)
+    # ዜግነት — use passed value, fallback to settings default
+    _nat_am = nat_am or s.get("nat_am", "ኢትዮጵያዊ")
+    _nat_en = nat_en or s.get("nat_en", "Ethiopian")
+    if _nat_am:
+        draw_smart_text(draw,(p_b.get('nat_am_x',620),p_b.get('nat_am_y',590)), _nat_am, sz_b.get('nat_am',24),sz_b.get('nat_am',24),tc)
+    if _nat_en:
+        draw_smart_text(draw,(p_b.get('nat_en_x',620),p_b.get('nat_en_y',615)), _nat_en, sz_b.get('nat_en',24),sz_b.get('nat_en',24),tc)
 
     if qr_b64:
         qr_im = Image.open(io.BytesIO(base64.b64decode(qr_b64))).convert("RGB")
