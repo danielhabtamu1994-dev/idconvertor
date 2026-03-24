@@ -1,5 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import API from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -23,7 +22,7 @@ const DEFAULT_SIZE_BACK = {
 const FRONT_FIELDS = [
   ['amh','አማርኛ ስም'],['eng','እንግሊዝኛ ስም'],['dob','የትውልድ ቀን'],
   ['sex','ፆታ'],['exp','ቀን ማብቂያ'],['fan','🔖 FAN'],
-  ['iss_greg','📅 Date of Issue (Eng)'],['iss_et','📅 የተሰጠበት ቀን (አማ)'],
+  ['iss_greg','📅 Date of Issue'],['iss_et','📅 የተሰጠበት ቀን'],
 ];
 const BACK_FIELDS = [
   ['phone','📞 ስልክ'],['fin','🔢 FIN'],
@@ -36,7 +35,7 @@ const BACK_FIELDS = [
 const SAMPLE_FRONT = {
   amh:'ዳኒኤል ሀብታሙ',eng:'Daniel Habtamu',dob:'1994-03-21',
   sex:'Male',exp:'2030-03-21',fan:'1462 6858 6588 5576',
-  iss_greg:'23/03/2026',iss_et:'14/ሚያዝያ/2018',
+  iss_greg:'24/Mar/2026',iss_et:'16/07/2018',
 };
 const SAMPLE_BACK = {
   phone:'0912345678',fin:'1234-5678-9012',addr_amh:'አዲስ አበባ',
@@ -46,14 +45,14 @@ const SAMPLE_BACK = {
 };
 
 function N({ value, onChange }) {
-  const [local, setLocal] = React.useState(String(value));
-  React.useEffect(() => { setLocal(String(value)); }, [value]);
+  const [local, setLocal] = React.useState(String(value ?? 0));
+  React.useEffect(() => { setLocal(String(value ?? 0)); }, [value]);
   return (
     <input
       inputMode="numeric"
       value={local}
-      onChange={e => { const v=e.target.value.replace(/[^0-9]/g,''); setLocal(v); }}
-      onBlur={() => { const n=parseInt(local)||0; setLocal(String(n)); onChange(n); }}
+      onChange={e => setLocal(e.target.value.replace(/[^0-9]/g,''))}
+      onBlur={() => { const n = parseInt(local)||0; setLocal(String(n)); onChange(n); }}
       style={{ width:'100%',padding:'5px 6px',border:'1.5px solid var(--border)',borderRadius:6,fontSize:12,outline:'none' }}
     />
   );
@@ -65,37 +64,23 @@ function PreviewCanvas({ tab, pos, size, posBack, sizeBack, bgFront, bgBack }) {
     const c = ref.current; if (!c) return;
     const ctx = c.getContext('2d');
     const bg  = tab==='front' ? bgFront : bgBack;
-    // BG_W/BG_H = actual background image dimensions
-    const BG_W = 3264, BG_H = 1854;
-
-    const draw = (s) => {
+    const BG_W=3264, BG_H=1854;
+    const draw=(s)=>{
       ctx.textBaseline='top';
-      if (tab==='front') {
+      if(tab==='front'){
         [['amh',SAMPLE_FRONT.amh],['eng',SAMPLE_FRONT.eng],['dob',SAMPLE_FRONT.dob],
-         ['sex',SAMPLE_FRONT.sex],['exp',SAMPLE_FRONT.exp]].forEach(([k,t])=>{
-          ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${(size[k]||28)*s}px Inter`;
+         ['sex',SAMPLE_FRONT.sex],['exp',SAMPLE_FRONT.exp],['fan',SAMPLE_FRONT.fan]].forEach(([k,t])=>{
+          ctx.fillStyle='rgba(45,25,5,.9)';ctx.font=`bold ${(size[k]||28)*s}px Inter`;
           ctx.fillText(t,pos[`${k}_x`]*s,pos[`${k}_y`]*s);
         });
-        // iss_greg and iss_et — rotated 90° like real ID
-        [[' iss_greg',SAMPLE_FRONT.iss_greg],['iss_et',SAMPLE_FRONT.iss_et]].forEach(([k,t])=>{
-          const fz = (size[k.trim()]||22)*s;
-          const x  = pos[`${k.trim()}_x`]*s;
-          const y  = pos[`${k.trim()}_y`]*s;
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(-Math.PI/2);
-          ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${fz}px Inter`;
-          ctx.fillText(t, 0, 0);
-          ctx.restore();
+        [['iss_greg',SAMPLE_FRONT.iss_greg],['iss_et',SAMPLE_FRONT.iss_et]].forEach(([k,t])=>{
+          ctx.save();ctx.translate(pos[`${k}_x`]*s,pos[`${k}_y`]*s);ctx.rotate(-Math.PI/2);
+          ctx.fillStyle='rgba(45,25,5,.9)';ctx.font=`bold ${(size[k]||22)*s}px Inter`;
+          ctx.fillText(t,0,0);ctx.restore();
         });
-        // FAN
-        ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${(size.fan||28)*s}px Inter`;
-        ctx.fillText(SAMPLE_FRONT.fan, pos.fan_x*s, pos.fan_y*s);
-        // barcode placeholder
         const bx=pos.fan_bc_x*s,by=pos.fan_bc_y*s,bw=(pos.fan_bc_w||300)*s,bh=(size.fan_bc||120)*s;
         ctx.fillStyle='#000';
         for(let i=0;i<30;i++){if(i%3===0)continue;ctx.fillRect(bx+(bw/30)*i,by,(bw/30)*.7,bh);}
-        // photo placeholder
         ctx.fillStyle='rgba(100,116,139,.25)';
         ctx.fillRect(pos.photo_x*s,pos.photo_y*s,pos.photo_w*s,pos.photo_h*s);
         ctx.fillStyle='#64748b';ctx.font=`${11*s}px Inter`;ctx.textAlign='center';
@@ -120,23 +105,17 @@ function PreviewCanvas({ tab, pos, size, posBack, sizeBack, bgFront, bgBack }) {
         ctx.textAlign='left';
       }
     };
-
-    if (!bg) {
-      const s = c.width / BG_W;
-      c.height = BG_H * s;
-      ctx.fillStyle='#e2e8f0'; ctx.fillRect(0,0,c.width,c.height);
-      ctx.fillStyle='#94a3b8'; ctx.font='13px Inter'; ctx.textAlign='center';
-      ctx.fillText('Background ምስል ያስገቡ', c.width/2, 20);
-      ctx.textAlign='left';
-      draw(s);
-      return;
+    if(!bg){
+      const s=c.width/BG_W; c.height=BG_H*s;
+      ctx.fillStyle='#e2e8f0';ctx.fillRect(0,0,c.width,c.height);
+      ctx.fillStyle='#94a3b8';ctx.font='12px Inter';ctx.textAlign='center';
+      ctx.fillText('Background ምስል ያስገቡ',c.width/2,16);ctx.textAlign='left';
+      draw(s);return;
     }
-    const img = new Image();
-    img.onload = () => {
-      const s = c.width/img.naturalWidth;
-      c.height = img.naturalHeight*s;
-      ctx.drawImage(img,0,0,c.width,c.height);
-      draw(s);
+    const img=new Image();
+    img.onload=()=>{
+      const s=c.width/img.naturalWidth; c.height=img.naturalHeight*s;
+      ctx.drawImage(img,0,0,c.width,c.height); draw(s);
     };
     img.src=bg;
   },[tab,pos,size,posBack,sizeBack,bgFront,bgBack]);
@@ -203,16 +182,16 @@ export default function Settings() {
     <div style={{display:'grid',gridTemplateColumns:'auto 58px 58px 58px',gap:5,fontSize:12,alignItems:'center'}}>
       {['Field','X','Y','Size'].map(h=><span key={h} style={{fontWeight:700,color:'var(--text-muted)',fontSize:11}}>{h}</span>)}
       {fields.map(([key,label])=>{
-        const xKey = key==='woreda_amh_num'?'woreda_amh_num_x':`${key}_x`;
-        const yKey = key==='woreda_amh_num'?'woreda_amh_num_y':`${key}_y`;
+        const xk=key==='woreda_amh_num'?'woreda_amh_num_x':`${key}_x`;
+        const yk=key==='woreda_amh_num'?'woreda_amh_num_y':`${key}_y`;
         return (
           <React.Fragment key={key}>
             <span style={{fontSize:12,paddingRight:6}}>{label}</span>
-            <N key={key+'_x'} value={isBack?posBack[xKey]:pos[`${key}_x`]}
-               onChange={v=>isBack?upPosB(xKey,v):upPos(`${key}_x`,v)}/>
-            <N key={key+'_y'} value={isBack?posBack[yKey]:pos[`${key}_y`]}
-               onChange={v=>isBack?upPosB(yKey,v):upPos(`${key}_y`,v)}/>
-            <N key={key+'_sz'} value={isBack?sizeBack[key]:size[key]}
+            <N key={key+'x'} value={isBack?posBack[xk]:pos[`${key}_x`]}
+               onChange={v=>isBack?upPosB(xk,v):upPos(`${key}_x`,v)}/>
+            <N key={key+'y'} value={isBack?posBack[yk]:pos[`${key}_y`]}
+               onChange={v=>isBack?upPosB(yk,v):upPos(`${key}_y`,v)}/>
+            <N key={key+'s'} value={isBack?sizeBack[key]:size[key]}
                onChange={v=>isBack?upSzB(key,v):upSz(key,v)}/>
           </React.Fragment>
         );
@@ -274,23 +253,17 @@ export default function Settings() {
               </button>
             </div>
 
-            {/* Nationality defaults (back tab only) */}
             {tab==='back' && (
               <div className="card">
                 <p className="card-title">🌍 ዜግነት Default</p>
                 <div style={{display:'grid',gap:8}}>
-                  <div>
-                    <p style={{fontSize:11,marginBottom:3,color:'var(--text-muted)'}}>አማርኛ</p>
-                    <input className="form-input" value={natAm} onChange={e=>setNatAm(e.target.value)} placeholder="ኢትዮጵያዊ"/>
-                  </div>
-                  <div>
-                    <p style={{fontSize:11,marginBottom:3,color:'var(--text-muted)'}}>English</p>
-                    <input className="form-input" value={natEn} onChange={e=>setNatEn(e.target.value)} placeholder="Ethiopian"/>
-                  </div>
+                  <div><p style={{fontSize:11,color:'var(--text-muted)',marginBottom:3}}>አማርኛ</p>
+                    <input className="form-input" value={natAm} onChange={e=>setNatAm(e.target.value)} placeholder="ኢትዮጵያዊ"/></div>
+                  <div><p style={{fontSize:11,color:'var(--text-muted)',marginBottom:3}}>English</p>
+                    <input className="form-input" value={natEn} onChange={e=>setNatEn(e.target.value)} placeholder="Ethiopian"/></div>
                 </div>
               </div>
             )}
-
             {/* Text fields */}
             <div className="card">
               <p className="card-title">📝 Text Fields</p>
