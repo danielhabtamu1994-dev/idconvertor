@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from routes.auth import verify_token
 from firebase import firebase_get
 from PIL import Image, ImageDraw, ImageFont
-import cv2, numpy as np, io, os, requests as req_lib, barcode
+import cv2, numpy as np, io, os, requests as req_lib, barcode, pytesseract
 from barcode.writer import ImageWriter
 
 router = APIRouter()
@@ -196,11 +196,6 @@ def crop_qr_from_card(card, margin=18):
     return card[ch//2:,:]
 
 # ══════════════════════════════════════════════════════════════════
-# Routes
-# ══════════════════════════════════════════════════════════════════
-import pytesseract
-
-# ══════════════════════════════════════════════════════════════════
 # Gemini Vision OCR helpers
 # ══════════════════════════════════════════════════════════════════
 def _get_ocr_mode():
@@ -223,7 +218,6 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str) -> dict:
     resp = _req.post(url, json=body, timeout=30)
     resp.raise_for_status()
     raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -261,7 +255,6 @@ If a field is not visible write empty string."""
 
 
 def _gemini_front_to_lines(g: dict):
-    """Convert Gemini JSON to lines[] + detected{} format for frontend compatibility."""
     lines = [
         g.get("full_name_amh",""),
         g.get("full_name_eng",""),
@@ -282,7 +275,6 @@ def _gemini_front_to_lines(g: dict):
     return lines, {k:v for k,v in detected.items() if v}
 
 def _gemini_back_to_lines(g: dict):
-    """Convert Gemini JSON to lines[] + detected{} format for frontend compatibility."""
     lines = [
         "",                              # 1 placeholder
         "",                              # 2 placeholder
@@ -315,16 +307,17 @@ async def ocr_front(file: UploadFile = File(...), token=Depends(verify_token)):
     data = await file.read()
     mode, gemini_key = _get_ocr_mode()
 
-    if mode == "gemini" and gemini_key:
+    if mode == "gemini":
+        if not gemini_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is required for gemini mode.")
         try:
             g = _gemini_ocr(data, PROMPT_FRONT, gemini_key)
             lines, detected = _gemini_front_to_lines(g)
             return {"lines": lines, "detected": detected, "source": "gemini"}
         except Exception as e:
-            # Fallback to normal OCR if Gemini fails
-            pass
+            raise HTTPException(status_code=500, detail=f"Gemini OCR failed: {str(e)}")
 
-    # Normal tesseract OCR
+    # Normal mode (tesseract)
     img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     h, w    = img.shape[:2]
     id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
@@ -338,15 +331,17 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
     data = await file.read()
     mode, gemini_key = _get_ocr_mode()
 
-    if mode == "gemini" and gemini_key:
+    if mode == "gemini":
+        if not gemini_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is required for gemini mode.")
         try:
             g = _gemini_ocr(data, PROMPT_BACK, gemini_key)
             lines, detected = _gemini_back_to_lines(g)
             return {"lines": lines, "detected": detected, "source": "gemini"}
         except Exception as e:
-            pass
+            raise HTTPException(status_code=500, detail=f"Gemini OCR failed: {str(e)}")
 
-    # Normal tesseract OCR
+    # Normal mode (tesseract)
     img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     h, w    = img.shape[:2]
     id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
@@ -397,9 +392,7 @@ def gregorian_to_ethiopian(year, month, day):
     delta    = (d - ny).days
     et_month = delta // 30 + 1
     et_day   = delta % 30 + 1
-    # Ethiopian: day/month_number/year  e.g. 14/07/2018
     et_str = f"{et_day:02d}/{et_month:02d}/{et_year}"
-    # Gregorian with word month e.g. 23/Mar/2026
     ENG_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
     greg_str = f"{day:02d}/{ENG_MONTHS[month-1]}/{year}"
     return et_str, greg_str
@@ -419,7 +412,6 @@ async def generate_front(
     p     = s.get("pos",  {})
     sz    = s.get("size", {})
 
-    # Auto dates
     today     = _dt.date.today()
     greg_str  = today.strftime("%d/%m/%Y")
     et_str, _ = gregorian_to_ethiopian(today.year, today.month, today.day)
@@ -437,18 +429,17 @@ async def generate_front(
     draw_smart_text(draw, (p.get('dob_x',700),p.get('dob_y',390)), safe(fn.get('dob_n',8)),  sz.get('dob',28),sz.get('dob',28),tc)
     draw_smart_text(draw, (p.get('sex_x',620),p.get('sex_y',470)), safe(fn.get('sex_n',10)), sz.get('sex',28),sz.get('sex',28),tc)
     draw_smart_text(draw, (p.get('exp_x',710),p.get('exp_y',555)), safe(fn.get('exp_n',12)), sz.get('exp',28),sz.get('exp',28),tc)
-    # Date of Issue — rotated 90° (vertical, like on real ID)
+
     def draw_rotated(bg_img, text, x, y, font_size, fill):
         from PIL import Image as _Img, ImageDraw as _IDraw
         f    = get_font(FONT_ENG, font_size)
-        # Use getlength + font size for reliable dimensions (avoid bbox clipping)
-        pad  = font_size          # generous padding on all sides
+        pad  = font_size
         try:
             tw = int(f.getlength(text))
         except AttributeError:
             bbox = f.getbbox(text)
             tw   = bbox[2] - bbox[0]
-        th   = font_size + 4      # line height ≈ font_size
+        th   = font_size + 4
         tmp  = _Img.new('RGBA', (tw + pad*2, th + pad*2), (0,0,0,0))
         td   = _IDraw.Draw(tmp)
         td.text((pad, pad), text, font=f, fill=fill)
@@ -521,10 +512,8 @@ async def generate_back(
     draw_smart_text(draw,(p_b.get('woreda_amh_num_x',750),p_b.get('woreda_amh_num_y',460)),woreda_num,                  sz_b.get('woreda_amh_num',28),sz_b.get('woreda_amh_num',28),tc)
     draw_smart_text(draw,(p_b.get('woreda_eng_x',620),   p_b.get('woreda_eng_y',500)),   safe(fn.get('woreda_eng_n',12)),sz_b.get('woreda_eng',28), sz_b.get('woreda_eng',28),  tc)
 
-    # SN
     if sn_val:
         draw_smart_text(draw,(p_b.get('sn_x',620),p_b.get('sn_y',560)), sn_val, sz_b.get('sn',24),sz_b.get('sn',24),tc)
-    # ዜግነት — use passed value, fallback to settings default
     _nat_am = nat_am or s.get("nat_am", "ኢትዮጵያዊ")
     _nat_en = nat_en or s.get("nat_en", "Ethiopian")
     if _nat_am:
