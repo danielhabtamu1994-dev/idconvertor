@@ -230,7 +230,6 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     _card = extract_white_card(img)
     card  = _card if _card is not None else img
 
-
     photo_crop = crop_photo_from_card(card)
     qr_crop    = crop_qr_from_card(card)
 
@@ -307,13 +306,19 @@ async def generate_front(
     draw_smart_text(draw, (p.get('exp_x',710),p.get('exp_y',555)), safe(fn.get('exp_n',12)), sz.get('exp',28),sz.get('exp',28),tc)
     # Date of Issue — rotated 90° (vertical, like on real ID)
     def draw_rotated(bg_img, text, x, y, font_size, fill):
-        from PIL import Image as _Img, ImageDraw as _IDraw, ImageFont as _IFont
-        f = get_font(FONT_ENG, font_size)
-        bbox = f.getbbox(text)
-        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-        tmp = _Img.new('RGBA', (tw+4, th+4), (0,0,0,0))
-        td  = _IDraw.Draw(tmp)
-        td.text((2,2), text, font=f, fill=fill)
+        from PIL import Image as _Img, ImageDraw as _IDraw
+        f    = get_font(FONT_ENG, font_size)
+        # Use getlength + font size for reliable dimensions (avoid bbox clipping)
+        pad  = font_size          # generous padding on all sides
+        try:
+            tw = int(f.getlength(text))
+        except AttributeError:
+            bbox = f.getbbox(text)
+            tw   = bbox[2] - bbox[0]
+        th   = font_size + 4      # line height ≈ font_size
+        tmp  = _Img.new('RGBA', (tw + pad*2, th + pad*2), (0,0,0,0))
+        td   = _IDraw.Draw(tmp)
+        td.text((pad, pad), text, font=f, fill=fill)
         rotated = tmp.rotate(90, expand=True)
         bg_img.paste(rotated, (x, y), rotated)
 
