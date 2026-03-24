@@ -330,8 +330,8 @@ async def ocr_front(file: UploadFile = File(...), token=Depends(verify_token)):
     id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
     gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
     text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split('
-') if len(l.strip()) > 1]
+    lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
+
     return {"lines": lines, "detected": auto_detect_fields(lines), "source": "normal"}
 
 @router.post("/ocr/back")
@@ -353,8 +353,8 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
     id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
     gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
     text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split('
-') if len(l.strip()) > 1]
+    lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
+
     return {"lines": lines, "detected": auto_detect_fields_back(lines), "source": "normal"}
 
 @router.post("/profile/crop")
