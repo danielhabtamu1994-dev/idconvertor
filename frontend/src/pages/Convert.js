@@ -36,6 +36,13 @@ export default function Convert() {
   const [snVal,      setSnVal]      = useState('');
   const [natAm,      setNatAm]      = useState('ኢትዮጵያዊ');
   const [natEn,      setNatEn]      = useState('Ethiopian');
+  // Load nat defaults from settings
+  useEffect(()=>{
+    API.get('/settings/').then(({data})=>{
+      if(data.nat_am) setNatAm(data.nat_am);
+      if(data.nat_en) setNatEn(data.nat_en);
+    }).catch(()=>{});
+  },[]);
   const [photob64,  setPhotob64]  = useState('');
   const [qrb64,     setQrb64]    = useState('');
 
