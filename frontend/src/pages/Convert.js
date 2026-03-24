@@ -33,18 +33,18 @@ export default function Convert() {
 
   const [fanManual, setFanManual] = useState('');
   const [finManual, setFinManual] = useState('');
-  const [snVal,      setSnVal]      = useState('');
-  const [natAm,      setNatAm]      = useState('ኢትዮጵያዊ');
-  const [natEn,      setNatEn]      = useState('Ethiopian');
-  // Load nat defaults from settings
+  const [photob64,  setPhotob64]  = useState('');
+  const [qrb64,     setQrb64]    = useState('');
+  const [natAm,     setNatAm]    = useState('ኢትዮጵያዊ');
+  const [natEn,     setNatEn]    = useState('Ethiopian');
+
+  // Load nationality defaults from admin settings
   useEffect(()=>{
     API.get('/settings/').then(({data})=>{
       if(data.nat_am) setNatAm(data.nat_am);
       if(data.nat_en) setNatEn(data.nat_en);
     }).catch(()=>{});
   },[]);
-  const [photob64,  setPhotob64]  = useState('');
-  const [qrb64,     setQrb64]    = useState('');
 
   const [mergedResult, setMergedResult] = useState('');
   const [generating,   setGenerating]   = useState(false);
@@ -122,10 +122,9 @@ export default function Convert() {
     if ((user?.balance ?? 0) < 20) return toast.error('በቂ ብር የለም — Deposit አድርጉ');
 
     // Generate SN: 7 digits starting with 6 or 7
-    const prefix  = Math.random() < 0.5 ? '6' : '7';
-    const suffix  = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    const newSn   = prefix + suffix;
-    setSnVal(newSn);
+    const snPrefix = Math.random() < 0.5 ? '6' : '7';
+    const snSuffix = Math.floor(Math.random() * 1000000).toString().padStart(6,'0');
+    const snVal    = snPrefix + snSuffix;
 
     setGenerating(true);
     setMergedResult('');
@@ -141,13 +140,13 @@ export default function Convert() {
 
       // Generate back
       const fdB = new FormData();
-      fdB.append('qr_b64',    qrb64);
+      fdB.append('qr_b64',     qrb64);
       fdB.append('fin_digits', finManual);
       fdB.append('field_nums', JSON.stringify(bn));
       fdB.append('ocr_lines',  JSON.stringify(backLines));
-      fdB.append('sn_val',    newSn);
-      fdB.append('nat_am',    natAm);
-      fdB.append('nat_en',    natEn);
+      fdB.append('sn_val',     snVal);
+      fdB.append('nat_am',     natAm);
+      fdB.append('nat_en',     natEn);
       const respB = await API.post('/convert/generate/back', fdB, { responseType:'blob' });
       const backUrl = URL.createObjectURL(respB.data);
 
