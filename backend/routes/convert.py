@@ -360,30 +360,26 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
 @router.post("/profile/crop")
 async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
     import base64
-    data  = await file.read()
-    img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    card  = extract_white_card(img) or img
+    data = await file.read()
+    # ምስሉን በ BGR ፎርማት አንብበው (RGB አታድርገው)
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    card = extract_white_card(img) or img
 
+    # ፎቶውን እና QR ኮዱን ቆርጠህ አውጣ
     photo_crop = crop_photo_from_card(card)
-    qr_crop    = crop_qr_from_card(card)
+    qr_crop = crop_qr_from_card(card)
 
-    bgra = remove_background(photo_crop)
-    if bgra is None:
-        gray = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-        bw   = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        bgra = cv2.cvtColor(bw, cv2.COLOR_BGR2BGRA)
-        bgra[:,:,3] = 255
+    def to_b64(cv_img):
+        if cv_img is None: return None
+        _, buffer = cv2.imencode('.jpg', cv_img)
+        return base64.b64encode(buffer).decode('utf-8')
 
-    photo_pil = Image.fromarray(cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA), 'RGBA')
-    photo_buf = io.BytesIO(); photo_pil.save(photo_buf, format="PNG")
-
-    qr_pil = Image.fromarray(cv2.cvtColor(qr_crop, cv2.COLOR_BGR2RGB))
-    qr_buf = io.BytesIO(); qr_pil.save(qr_buf, format="PNG")
-
+    # ውጤቱን መልስ
     return {
-        "photo_b64": base64.b64encode(photo_buf.getvalue()).decode(),
-        "qr_b64":    base64.b64encode(qr_buf.getvalue()).decode(),
+        "photo": to_b64(photo_crop),
+        "qr": to_b64(qr_crop)
     }
+
 
 
 def gregorian_to_ethiopian(year, month, day):
