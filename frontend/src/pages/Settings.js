@@ -72,10 +72,21 @@ function PreviewCanvas({ tab, pos, size, posBack, sizeBack, bgFront, bgBack }) {
       ctx.textBaseline='top';
       if (tab==='front') {
         [['amh',SAMPLE_FRONT.amh],['eng',SAMPLE_FRONT.eng],['dob',SAMPLE_FRONT.dob],
-         ['sex',SAMPLE_FRONT.sex],['exp',SAMPLE_FRONT.exp],
-         ['iss_greg',SAMPLE_FRONT.iss_greg],['iss_et',SAMPLE_FRONT.iss_et]].forEach(([k,t])=>{
+         ['sex',SAMPLE_FRONT.sex],['exp',SAMPLE_FRONT.exp]].forEach(([k,t])=>{
           ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${(size[k]||28)*s}px Inter`;
           ctx.fillText(t,pos[`${k}_x`]*s,pos[`${k}_y`]*s);
+        });
+        // iss_greg and iss_et — rotated 90° like real ID
+        [[' iss_greg',SAMPLE_FRONT.iss_greg],['iss_et',SAMPLE_FRONT.iss_et]].forEach(([k,t])=>{
+          const fz = (size[k.trim()]||22)*s;
+          const x  = pos[`${k.trim()}_x`]*s;
+          const y  = pos[`${k.trim()}_y`]*s;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(-Math.PI/2);
+          ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${fz}px Inter`;
+          ctx.fillText(t, 0, 0);
+          ctx.restore();
         });
         // FAN
         ctx.fillStyle='rgba(45,25,5,.9)'; ctx.font=`bold ${(size.fan||28)*s}px Inter`;
@@ -191,15 +202,21 @@ export default function Settings() {
   const FieldGrid=({fields,isBack})=>(
     <div style={{display:'grid',gridTemplateColumns:'auto 58px 58px 58px',gap:5,fontSize:12,alignItems:'center'}}>
       {['Field','X','Y','Size'].map(h=><span key={h} style={{fontWeight:700,color:'var(--text-muted)',fontSize:11}}>{h}</span>)}
-      {fields.map(([key,label])=>(<>
-        <span key={key} style={{fontSize:12,paddingRight:6}}>{label}</span>
-        <N value={isBack?(key==='woreda_amh_num'?posBack.woreda_amh_num_x:posBack[`${key}_x`]):pos[`${key}_x`]}
-           onChange={v=>isBack?upPosB(key==='woreda_amh_num'?'woreda_amh_num_x':`${key}_x`,v):upPos(`${key}_x`,v)}/>
-        <N value={isBack?(key==='woreda_amh_num'?posBack.woreda_amh_num_y:posBack[`${key}_y`]):pos[`${key}_y`]}
-           onChange={v=>isBack?upPosB(key==='woreda_amh_num'?'woreda_amh_num_y':`${key}_y`,v):upPos(`${key}_y`,v)}/>
-        <N value={isBack?sizeBack[key]:size[key]}
-           onChange={v=>isBack?upSzB(key,v):upSz(key,v)}/>
-      </>))}
+      {fields.map(([key,label])=>{
+        const xKey = key==='woreda_amh_num'?'woreda_amh_num_x':`${key}_x`;
+        const yKey = key==='woreda_amh_num'?'woreda_amh_num_y':`${key}_y`;
+        return (
+          <React.Fragment key={key}>
+            <span style={{fontSize:12,paddingRight:6}}>{label}</span>
+            <N key={key+'_x'} value={isBack?posBack[xKey]:pos[`${key}_x`]}
+               onChange={v=>isBack?upPosB(xKey,v):upPos(`${key}_x`,v)}/>
+            <N key={key+'_y'} value={isBack?posBack[yKey]:pos[`${key}_y`]}
+               onChange={v=>isBack?upPosB(yKey,v):upPos(`${key}_y`,v)}/>
+            <N key={key+'_sz'} value={isBack?sizeBack[key]:size[key]}
+               onChange={v=>isBack?upSzB(key,v):upSz(key,v)}/>
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 
