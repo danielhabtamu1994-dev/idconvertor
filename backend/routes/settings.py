@@ -12,7 +12,11 @@ class SettingsPayload(BaseModel):
     pos_back:   dict[str, Any]
     size_back:  dict[str, Any]
     nat_am:     str = "ኢትዮጵያዊ"
-    nat_en:     str = "Ethiopian" 
+    nat_en:     str = "Ethiopian"
+
+class ApiSettingsPayload(BaseModel):
+    ocr_mode:   str = "normal"   # "normal" or "gemini"
+    gemini_key: str = ""
 
 @router.get("/")
 def load_settings(token: dict = Depends(verify_token)):
@@ -23,3 +27,13 @@ def load_settings(token: dict = Depends(verify_token)):
 def save_settings(payload: SettingsPayload, token: dict = Depends(require_admin)):
     firebase_set("settings", payload.model_dump())
     return {"message": "Settings saved"}
+
+@router.get("/api-settings")
+def load_api_settings(token: dict = Depends(require_admin)):
+    data = firebase_get("api_settings") or {}
+    return {"ocr_mode": data.get("ocr_mode","normal"), "gemini_key": data.get("gemini_key","")}
+
+@router.put("/api-settings")
+def save_api_settings(payload: ApiSettingsPayload, token: dict = Depends(require_admin)):
+    firebase_set("api_settings", payload.model_dump())
+    return {"message": "API settings saved"}
