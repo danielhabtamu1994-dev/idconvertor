@@ -323,6 +323,9 @@ async def ocr_front(file: UploadFile = File(...), token=Depends(verify_token)):
             lines, detected = _gemini_front_to_lines(g)
             return {"lines": lines, "detected": detected, "source": "gemini"}
         except Exception as e:
+            import traceback
+            print("GEMINI FRONT ERROR:", str(e))
+            print(traceback.format_exc())
             raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
 
     # Normal tesseract OCR
@@ -347,6 +350,9 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
             lines, detected = _gemini_back_to_lines(g)
             return {"lines": lines, "detected": detected, "source": "gemini"}
         except Exception as e:
+            import traceback
+            print("GEMINI BACK ERROR:", str(e))
+            print(traceback.format_exc())
             raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
 
     # Normal tesseract OCR
