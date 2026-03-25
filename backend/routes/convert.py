@@ -210,8 +210,7 @@ def _get_ocr_mode():
 def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str) -> dict:
     import requests as _req, json as _json, base64 as _b64
     img_b64 = _b64.b64encode(image_bytes).decode()
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={gemini_key}"
-
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={gemini_key}"
     body = {
         "contents": [{
             "parts": [
@@ -483,6 +482,10 @@ async def generate_front(
         ph_im = Image.open(io.BytesIO(base64.b64decode(photo_b64))).convert("RGBA")
         ph_im = ph_im.resize((int(p.get('photo_w',190)), int(p.get('photo_h',240))), Image.LANCZOS)
         bg.paste(ph_im, (int(p.get('photo_x',105)), int(p.get('photo_y',165))), ph_im.split()[3])
+        # Second photo placement
+        ph_im2 = Image.open(io.BytesIO(base64.b64decode(photo_b64))).convert("RGBA")
+        ph_im2 = ph_im2.resize((int(p.get('photo2_w',80)), int(p.get('photo2_h',100))), Image.LANCZOS)
+        bg.paste(ph_im2, (int(p.get('photo2_x',900)), int(p.get('photo2_y',165))), ph_im2.split()[3])
 
     buf = io.BytesIO()
     bg.save(buf, format="JPEG", quality=92, optimize=True)
