@@ -207,30 +207,56 @@ def _get_ocr_mode():
     cfg = firebase_get("api_settings") or {}
     return cfg.get("ocr_mode", "normal"), cfg.get("gemini_key", "")
 
+def _detect_mime(image_bytes: bytes) -> str:
+    """Detect image mime type from magic bytes."""
+    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if image_bytes[:3] == b'\xff\xd8\xff':
+        return "image/jpeg"
+    if image_bytes[:4] == b'GIF8':
+        return "image/gif"
+    if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/jpeg"  # fallback
+
+def _parse_gemini_json(raw: str) -> dict:
+    """Robustly parse JSON from Gemini response, stripping any markdown fences."""
+    import json as _json, re as _re
+    text = raw.strip()
+    # Remove ```json ... ``` or ``` ... ``` fences
+    fenced = _re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+    if fenced:
+        text = fenced.group(1).strip()
+    # Find the first { ... } block
+    start = text.find('{')
+    end   = text.rfind('}')
+    if start != -1 and end != -1:
+        text = text[start:end+1]
+    return _json.loads(text)
+
 def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str) -> dict:
-    import requests as _req, json as _json, base64 as _b64
-    img_b64 = _b64.b64encode(image_bytes).decode()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={gemini_key}"
+    import requests as _req, base64 as _b64
+    img_b64   = _b64.b64encode(image_bytes).decode()
+    mime_type = _detect_mime(image_bytes)
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={gemini_key}"
+    )
     body = {
         "contents": [{
             "parts": [
-                {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
+                {"inline_data": {"mime_type": mime_type, "data": img_b64}},
                 {"text": prompt}
             ]
         }],
-        "generationConfig": {"temperature": 0, "maxOutputTokens": 512}
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 1024}
     }
-    resp = _req.post(url, json=body, timeout=30)
+    resp = _req.post(url, json=body, timeout=40)
     if not resp.ok:
         print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
         resp.raise_for_status()
-    raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return _json.loads(raw.strip())
+    raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    return _parse_gemini_json(raw)
 
 PROMPT_FRONT = """You are reading an Ethiopian Digital ID card (front side).
 Extract ONLY these fields and return valid JSON, nothing else:
