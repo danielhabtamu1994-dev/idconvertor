@@ -200,27 +200,163 @@ def crop_qr_from_card(card, margin=18):
 # ══════════════════════════════════════════════════════════════════
 import pytesseract
 
+# ══════════════════════════════════════════════════════════════════
+# Gemini Vision OCR helpers
+# ══════════════════════════════════════════════════════════════════
+def _get_ocr_mode():
+    cfg = firebase_get("api_settings") or {}
+    return cfg.get("ocr_mode", "normal"), cfg.get("gemini_key", "")
+
+def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str) -> dict:
+    import requests as _req, json as _json, base64 as _b64
+    img_b64 = _b64.b64encode(image_bytes).decode()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+    body = {
+        "contents": [{
+            "parts": [
+                {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
+                {"text": prompt}
+            ]
+        }],
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 512}
+    }
+    resp = _req.post(url, json=body, timeout=30)
+    resp.raise_for_status()
+    raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return _json.loads(raw.strip())
+
+PROMPT_FRONT = """You are reading an Ethiopian Digital ID card (front side).
+Extract ONLY these fields and return valid JSON, nothing else:
+{
+  "full_name_amh": "Amharic full name (line with Ethiopic script)",
+  "full_name_eng": "English full name",
+  "date_of_birth_greg": "Gregorian date e.g. 23/10/1996",
+  "date_of_birth_et": "Ethiopian date e.g. 2004/Jun/30",
+  "sex": "Male or Female",
+  "date_of_expiry_greg": "Gregorian expiry e.g. 2025/01/08",
+  "date_of_expiry_et": "Ethiopian expiry e.g. 2032/Sep/18",
+  "fan": "16-digit FAN number digits only no spaces"
+}
+If a field is not visible write empty string."""
+
+PROMPT_BACK = """You are reading an Ethiopian Digital ID card (back side).
+Extract ONLY these fields and return valid JSON, nothing else:
+{
+  "phone": "phone number 10 digits",
+  "fin": "12-digit FIN number digits only",
+  "address_amh": "address in Amharic",
+  "address_eng": "address in English",
+  "zone_amh": "zone/subcity in Amharic",
+  "zone_eng": "zone/subcity in English",
+  "woreda_amh": "woreda name in Amharic (text only, no number)",
+  "woreda_num": "woreda number only digits",
+  "woreda_eng": "woreda in English"
+}
+If a field is not visible write empty string."""
+
+
+def _gemini_front_to_lines(g: dict):
+    """Convert Gemini JSON to lines[] + detected{} format for frontend compatibility."""
+    lines = [
+        g.get("full_name_amh",""),
+        g.get("full_name_eng",""),
+        g.get("date_of_birth_greg",""),
+        g.get("date_of_birth_et",""),
+        g.get("sex",""),
+        g.get("date_of_expiry_greg",""),
+        g.get("date_of_expiry_et",""),
+        g.get("fan",""),
+    ]
+    detected = {
+        "full_name": 1 if g.get("full_name_amh") else None,
+        "date_birth": 3 if g.get("date_of_birth_greg") else None,
+        "sex": 5 if g.get("sex") else None,
+        "date_expiry": 6 if g.get("date_of_expiry_greg") else None,
+        "fan": 8 if g.get("fan") else None,
+    }
+    return lines, {k:v for k,v in detected.items() if v}
+
+def _gemini_back_to_lines(g: dict):
+    """Convert Gemini JSON to lines[] + detected{} format for frontend compatibility."""
+    lines = [
+        "",                              # 1 placeholder
+        "",                              # 2 placeholder
+        g.get("phone",""),               # 3
+        "",                              # 4 placeholder
+        g.get("fin",""),                 # 5
+        "",                              # 6 placeholder
+        g.get("address_amh",""),         # 7
+        g.get("address_eng",""),         # 8
+        g.get("zone_amh",""),            # 9
+        g.get("zone_eng",""),            # 10
+        g.get("woreda_amh","") + " " + g.get("woreda_num",""),  # 11 combined
+        g.get("woreda_eng",""),          # 12
+    ]
+    detected = {
+        "phone": 3 if g.get("phone") else None,
+        "fin":   5 if g.get("fin") else None,
+        "addr_amh":   7 if g.get("address_amh") else None,
+        "addr_eng":   8 if g.get("address_eng") else None,
+        "zone_amh":   9 if g.get("zone_amh") else None,
+        "zone_eng":  10 if g.get("zone_eng") else None,
+        "woreda_amh":11 if g.get("woreda_amh") else None,
+        "woreda_eng":12 if g.get("woreda_eng") else None,
+    }
+    return lines, {k:v for k,v in detected.items() if v}
+
+
 @router.post("/ocr/front")
 async def ocr_front(file: UploadFile = File(...), token=Depends(verify_token)):
-    data    = await file.read()
+    data = await file.read()
+    mode, gemini_key = _get_ocr_mode()
+
+    if mode == "gemini":
+        if not gemini_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
+        try:
+            g = _gemini_ocr(data, PROMPT_FRONT, gemini_key)
+            lines, detected = _gemini_front_to_lines(g)
+            return {"lines": lines, "detected": detected, "source": "gemini"}
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
+
+    # Normal tesseract OCR
     img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     h, w    = img.shape[:2]
     id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
     gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
     text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
-    return {"lines": lines, "detected": auto_detect_fields(lines)}
+    lines   = [l.strip() for l in text.split("\n") if len(l.strip()) > 1]
+    return {"lines": lines, "detected": auto_detect_fields(lines), "source": "normal"}
 
 @router.post("/ocr/back")
 async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
-    data    = await file.read()
+    data = await file.read()
+    mode, gemini_key = _get_ocr_mode()
+
+    if mode == "gemini":
+        if not gemini_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
+        try:
+            g = _gemini_ocr(data, PROMPT_BACK, gemini_key)
+            lines, detected = _gemini_back_to_lines(g)
+            return {"lines": lines, "detected": detected, "source": "gemini"}
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
+
+    # Normal tesseract OCR
     img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     h, w    = img.shape[:2]
     id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
     gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
     text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
-    return {"lines": lines, "detected": auto_detect_fields_back(lines)}
+    lines   = [l.strip() for l in text.split("\n") if len(l.strip()) > 1]
+    return {"lines": lines, "detected": auto_detect_fields_back(lines), "source": "normal"}
 
 @router.post("/profile/crop")
 async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
