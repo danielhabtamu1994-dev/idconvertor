@@ -6,6 +6,7 @@ const DEFAULT_POS = {
   amh_x:620,amh_y:235,eng_x:620,eng_y:268,dob_x:700,dob_y:390,
   sex_x:620,sex_y:470,exp_x:710,exp_y:555,fan_x:575,fan_y:648,
   fan_bc_x:575,fan_bc_y:600,fan_bc_w:300,photo_x:105,photo_y:165,photo_w:190,photo_h:240,
+  photo2_x:900,photo2_y:165,photo2_w:80,photo2_h:100,
 };
 const DEFAULT_SIZE = { amh:32,eng:32,dob:28,sex:28,exp:28,fan:28,fan_bc:120 };
 const DEFAULT_POS_BACK = {
@@ -99,6 +100,12 @@ function PreviewCanvas({ tab, pos, size, posBack, sizeBack, bgFront, bgBack }) {
         ctx.fillRect(pos.photo_x*s,pos.photo_y*s,pos.photo_w*s,pos.photo_h*s);
         ctx.fillStyle='#64748b';ctx.font=`${11*s}px Inter`;ctx.textAlign='center';
         ctx.fillText('ፎቶ',(pos.photo_x+pos.photo_w/2)*s,(pos.photo_y+pos.photo_h/2)*s);
+        ctx.textAlign='left';
+        // photo2 placeholder
+        ctx.fillStyle='rgba(100,116,139,.25)';
+        ctx.fillRect(pos.photo2_x*s,pos.photo2_y*s,pos.photo2_w*s,pos.photo2_h*s);
+        ctx.fillStyle='#64748b';ctx.font=`${11*s}px Inter`;ctx.textAlign='center';
+        ctx.fillText('ፎቶ 2',(pos.photo2_x+pos.photo2_w/2)*s,(pos.photo2_y+pos.photo2_h/2)*s);
         ctx.textAlign='left';
       } else {
         [['phone',SAMPLE_BACK.phone],['fin',SAMPLE_BACK.fin],
@@ -367,12 +374,22 @@ export default function Settings() {
               </div>
               {/* Photo */}
               <div className="card">
-                <p className="card-title">📸 ፎቶ</p>
+                <p className="card-title">📸 ፎቶ 1</p>
                 <div style={{display:'grid',gridTemplateColumns:'auto 58px 58px 58px',gap:5,fontSize:12,alignItems:'center'}}>
                   {['Field','X','Y','W/H'].map(h=><span key={h} style={{fontWeight:700,color:'var(--text-muted)',fontSize:11}}>{h}</span>)}
                   <span>Position</span><N value={pos.photo_x} onChange={v=>upPos('photo_x',v)}/><N value={pos.photo_y} onChange={v=>upPos('photo_y',v)}/><span/>
                   <span>Width</span><N value={pos.photo_w} onChange={v=>upPos('photo_w',v)}/><span/><span/>
                   <span>Height</span><span/><span/><N value={pos.photo_h} onChange={v=>upPos('photo_h',v)}/>
+                </div>
+              </div>
+              {/* Photo 2 */}
+              <div className="card">
+                <p className="card-title">📸 ፎቶ 2</p>
+                <div style={{display:'grid',gridTemplateColumns:'auto 58px 58px 58px',gap:5,fontSize:12,alignItems:'center'}}>
+                  {['Field','X','Y','W/H'].map(h=><span key={h} style={{fontWeight:700,color:'var(--text-muted)',fontSize:11}}>{h}</span>)}
+                  <span>Position</span><N value={pos.photo2_x} onChange={v=>upPos('photo2_x',v)}/><N value={pos.photo2_y} onChange={v=>upPos('photo2_y',v)}/><span/>
+                  <span>Width</span><N value={pos.photo2_w} onChange={v=>upPos('photo2_w',v)}/><span/><span/>
+                  <span>Height</span><span/><span/><N value={pos.photo2_h} onChange={v=>upPos('photo2_h',v)}/>
                 </div>
               </div>
             </>)}
