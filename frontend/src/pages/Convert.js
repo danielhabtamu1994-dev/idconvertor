@@ -21,6 +21,7 @@ function UploadBox({ label, file, onChange, loading }) {
 
 export default function Convert() {
   const { user, refreshBalance } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const [frontFile,   setFrontFile]   = useState(null);
   const [backFile,    setBackFile]    = useState(null);
@@ -38,7 +39,9 @@ export default function Convert() {
   const [natAm,     setNatAm]    = useState('ኢትዮጵያዊ');
   const [natEn,     setNatEn]    = useState('Ethiopian');
 
-  // Load nationality defaults from admin settings
+  const manualPhotoRef = useRef();
+  const manualQrRef    = useRef();
+
   useEffect(()=>{
     API.get('/settings/').then(({data})=>{
       if(data.nat_am) setNatAm(data.nat_am);
@@ -48,11 +51,8 @@ export default function Convert() {
 
   const [mergedResult, setMergedResult] = useState('');
   const [generating,   setGenerating]   = useState(false);
-
   const [loading, setLoading] = useState({});
   const setLoad = (k,v) => setLoading(p=>({...p,[k]:v}));
-
-  const ready = frontLines.length>0 && backLines.length>0;
 
   // ── Auto OCR front ─────────────────────────────────────────────
   useEffect(() => {
@@ -115,13 +115,51 @@ export default function Convert() {
     })();
   }, [profileFile]);
 
-  // ── Continue — generate both & merge ──────────────────────────
+  // ── Admin manual photo/qr handlers ────────────────────────────
+  const handleManualPhoto = (file) => {
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = e => setPhotob64(e.target.result.split(',')[1]);
+    r.readAsDataURL(file);
+  };
+  const handleManualQr = (file) => {
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = e => setQrb64(e.target.result.split(',')[1]);
+    r.readAsDataURL(file);
+  };
+
+  // ── Field label helpers for OCR table ─────────────────────────
+  const getFrontLabel = (i) => {
+    const map = {
+      [fn.amh_n-1]: 'አማርኛ ስም',
+      [fn.eng_n-1]: 'እንግሊዝኛ ስም',
+      [fn.dob_n-1]: 'የትውልድ ቀን',
+      [fn.sex_n-1]: 'ፆታ',
+      [fn.exp_n-1]: 'ቀን ማብቂያ',
+    };
+    return map[i] || '';
+  };
+  const getBackLabel = (i) => {
+    const map = {
+      [bn.phone_n-1]:     'ስልክ',
+      [bn.fin_n-1]:       'FIN',
+      [bn.addr_amh_n-1]:  'አድራሻ (አማ)',
+      [bn.addr_eng_n-1]:  'አድራሻ (Eng)',
+      [bn.zone_amh_n-1]:  'ዞን (አማ)',
+      [bn.zone_eng_n-1]:  'ዞን (Eng)',
+      [bn.woreda_amh_n-1]:'ወረዳ (አማ)',
+      [bn.woreda_eng_n-1]:'ወረዳ (Eng)',
+    };
+    return map[i] || '';
+  };
+
+  // ── Generate ───────────────────────────────────────────────────
   const handleContinue = async () => {
     if (!frontFile) return toast.error('ID Front ያስገቡ');
     if (!backFile)  return toast.error('ID Back ያስገቡ');
     if ((user?.balance ?? 0) < 20) return toast.error('በቂ ብር የለም — Deposit አድርጉ');
 
-    // Generate SN: 7 digits starting with 6 or 7
     const snPrefix = Math.random() < 0.5 ? '6' : '7';
     const snSuffix = Math.floor(Math.random() * 1000000).toString().padStart(6,'0');
     const snVal    = snPrefix + snSuffix;
@@ -129,7 +167,6 @@ export default function Convert() {
     setGenerating(true);
     setMergedResult('');
     try {
-      // Generate front
       const fdF = new FormData();
       fdF.append('photo_b64',  photob64);
       fdF.append('fan_digits', fanManual);
@@ -138,7 +175,6 @@ export default function Convert() {
       const respF = await API.post('/convert/generate/front', fdF, { responseType:'blob' });
       const frontUrl = URL.createObjectURL(respF.data);
 
-      // Generate back
       const fdB = new FormData();
       fdB.append('qr_b64',     qrb64);
       fdB.append('fin_digits', finManual);
@@ -150,7 +186,6 @@ export default function Convert() {
       const respB = await API.post('/convert/generate/back', fdB, { responseType:'blob' });
       const backUrl = URL.createObjectURL(respB.data);
 
-      // Merge side by side on canvas
       const imgF = await loadImg(frontUrl);
       const imgB = await loadImg(backUrl);
       const gap   = 20;
@@ -167,10 +202,8 @@ export default function Convert() {
       const merged = canvas.toDataURL('image/jpeg', 0.92);
       setMergedResult(merged);
 
-      // Deduct 20 birr
       await API.post('/auth/deduct', { amount: 20 });
       await refreshBalance();
-
       toast.success('✅ ID ተዘጋጀ!');
     } catch(e) {
       toast.error(e.response?.data?.detail || 'Failed');
@@ -188,6 +221,11 @@ export default function Convert() {
 
   const anyLoading = loading.ocr_front || loading.ocr_back || loading.crop;
 
+  // shared table style
+  const thStyle = { padding:'6px 8px', textAlign:'left', color:'var(--text-muted)', fontWeight:700, fontSize:11 };
+  const tdStyle = { padding:'4px 8px', color:'var(--text-muted)', fontSize:12 };
+  const inputStyle = { width:'100%', padding:'4px 6px', border:'1px solid var(--border)', borderRadius:4, fontSize:12, background:'var(--bg)', color:'var(--text)' };
+
   return (
     <div>
       <h1 className="page-title">🪪 ID Convert</h1>
@@ -200,6 +238,107 @@ export default function Convert() {
           <UploadBox label="📷 Profile & QR" file={profileFile} loading={loading.crop}       onChange={setProfileFile}/>
         </div>
       </div>
+
+      {/* Admin: Manual Photo & QR override */}
+      {isAdmin && (
+        <div className="card">
+          <p className="card-title">🔧 Admin — ፎቶ እና QR Manual Upload</p>
+          <div className="grid-2">
+            <div>
+              <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>📸 ፎቶ (manually upload)</p>
+              <div className="upload-box" style={{cursor:'pointer',minHeight:100}}
+                onClick={()=>manualPhotoRef.current.click()}>
+                {photob64
+                  ? <img src={`data:image/png;base64,${photob64}`} alt="photo"
+                      style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
+                  : <><div style={{fontSize:24}}>🖼️</div><p style={{fontSize:11}}>ፎቶ ምረጥ</p></>
+                }
+                <input ref={manualPhotoRef} type="file" accept="image/*" style={{display:'none'}}
+                  onChange={e=>handleManualPhoto(e.target.files[0])}/>
+              </div>
+            </div>
+            <div>
+              <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>📷 QR Code (manually upload)</p>
+              <div className="upload-box" style={{cursor:'pointer',minHeight:100}}
+                onClick={()=>manualQrRef.current.click()}>
+                {qrb64
+                  ? <img src={`data:image/png;base64,${qrb64}`} alt="qr"
+                      style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
+                  : <><div style={{fontSize:24}}>📷</div><p style={{fontSize:11}}>QR ምረጥ</p></>
+                }
+                <input ref={manualQrRef} type="file" accept="image/*" style={{display:'none'}}
+                  onChange={e=>handleManualQr(e.target.files[0])}/>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin: Front OCR editable table */}
+      {isAdmin && frontLines.length > 0 && (
+        <div className="card">
+          <p className="card-title">✏️ Front OCR — ማስተካከያ</p>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr style={{background:'var(--bg)'}}>
+                  <th style={{...thStyle,width:32}}>#</th>
+                  <th style={{...thStyle,width:110}}>Field</th>
+                  <th style={thStyle}>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {frontLines.map((line, i) => {
+                  const label = getFrontLabel(i);
+                  return (
+                    <tr key={i} style={{borderTop:'1px solid var(--border)', background: label ? 'rgba(59,130,246,0.06)' : 'transparent'}}>
+                      <td style={tdStyle}>{i+1}</td>
+                      <td style={{...tdStyle, color:'#3b82f6', fontWeight:600}}>{label}</td>
+                      <td style={{padding:'3px 4px'}}>
+                        <input value={line} style={inputStyle}
+                          onChange={e=>{const arr=[...frontLines];arr[i]=e.target.value;setFrontLines(arr);}}/>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Admin: Back OCR editable table */}
+      {isAdmin && backLines.length > 0 && (
+        <div className="card">
+          <p className="card-title">✏️ Back OCR — ማስተካከያ</p>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr style={{background:'var(--bg)'}}>
+                  <th style={{...thStyle,width:32}}>#</th>
+                  <th style={{...thStyle,width:110}}>Field</th>
+                  <th style={thStyle}>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {backLines.map((line, i) => {
+                  const label = getBackLabel(i);
+                  return (
+                    <tr key={i} style={{borderTop:'1px solid var(--border)', background: label ? 'rgba(59,130,246,0.06)' : 'transparent'}}>
+                      <td style={tdStyle}>{i+1}</td>
+                      <td style={{...tdStyle, color:'#3b82f6', fontWeight:600}}>{label}</td>
+                      <td style={{padding:'3px 4px'}}>
+                        <input value={line} style={inputStyle}
+                          onChange={e=>{const arr=[...backLines];arr[i]=e.target.value;setBackLines(arr);}}/>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* FAN / FIN */}
       <div className="card">
