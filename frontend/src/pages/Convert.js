@@ -19,6 +19,25 @@ function UploadBox({ label, file, onChange, loading }) {
   );
 }
 
+function NInput({ value, onChange }) {
+  return (
+    <input type="number" min={1} value={value}
+      onChange={e => onChange(Number(e.target.value) || 1)}
+      style={{ width:52, padding:'3px 5px', border:'1px solid var(--border)', borderRadius:4,
+        fontSize:12, background:'var(--bg)', color:'var(--text)', textAlign:'center' }}/>
+  );
+}
+
+const FRONT_MAP_FIELDS = [
+  ['amh_n','አማርኛ ስም'],['eng_n','እንግሊዝኛ ስም'],['dob_n','የትውልድ ቀን'],
+  ['sex_n','ፆታ'],['exp_n','ቀን ማብቂያ'],
+];
+const BACK_MAP_FIELDS = [
+  ['phone_n','ስልክ'],['fin_n','FIN'],['addr_amh_n','አድራሻ (አማ)'],
+  ['addr_eng_n','አድራሻ (Eng)'],['zone_amh_n','ዞን (አማ)'],['zone_eng_n','ዞን (Eng)'],
+  ['woreda_amh_n','ወረዳ (አማ)'],['woreda_eng_n','ወረዳ (Eng)'],
+];
+
 export default function Convert() {
   const { user, refreshBalance } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -29,8 +48,12 @@ export default function Convert() {
 
   const [frontLines, setFrontLines] = useState([]);
   const [backLines,  setBackLines]  = useState([]);
+
   const [fn, setFn] = useState({ amh_n:5,eng_n:6,dob_n:8,sex_n:10,exp_n:12 });
   const [bn, setBn] = useState({ phone_n:3,fin_n:5,addr_amh_n:7,addr_eng_n:8,zone_amh_n:9,zone_eng_n:10,woreda_amh_n:11,woreda_eng_n:12 });
+
+  const [frontMapMode, setFrontMapMode] = useState('normal');
+  const [backMapMode,  setBackMapMode]  = useState('normal');
 
   const [fanManual, setFanManual] = useState('');
   const [finManual, setFinManual] = useState('');
@@ -46,15 +69,33 @@ export default function Convert() {
     API.get('/settings/').then(({data})=>{
       if(data.nat_am) setNatAm(data.nat_am);
       if(data.nat_en) setNatEn(data.nat_en);
+      if(data.field_map_front) setFn(p=>({...p,...data.field_map_front}));
+      if(data.field_map_back)  setBn(p=>({...p,...data.field_map_back}));
     }).catch(()=>{});
   },[]);
 
   const [mergedResult, setMergedResult] = useState('');
   const [generating,   setGenerating]   = useState(false);
-  const [loading, setLoading] = useState({});
+  const [loading,      setLoading]      = useState({});
   const setLoad = (k,v) => setLoading(p=>({...p,[k]:v}));
 
-  // ── Auto OCR front ─────────────────────────────────────────────
+  const saveMapping = async () => {
+    try {
+      const { data: cur } = await API.get('/settings/');
+      await API.put('/settings/', {
+        pos:       cur.pos       || {},
+        size:      cur.size      || {},
+        pos_back:  cur.pos_back  || {},
+        size_back: cur.size_back || {},
+        nat_am:    natAm,
+        nat_en:    natEn,
+        field_map_front: fn,
+        field_map_back:  bn,
+      });
+      toast.success('✅ Mapping saved!');
+    } catch { toast.error('Save failed'); }
+  };
+
   useEffect(() => {
     if (!frontFile) return;
     (async () => {
@@ -64,18 +105,19 @@ export default function Convert() {
         fd.append('file', frontFile);
         const { data } = await API.post('/convert/ocr/front', fd);
         setFrontLines(data.lines);
-        const d = data.detected;
-        if (d.full_name)   setFn(p=>({...p,amh_n:d.full_name,eng_n:d.full_name+1}));
-        if (d.date_birth)  setFn(p=>({...p,dob_n:d.date_birth}));
-        if (d.sex)         setFn(p=>({...p,sex_n:d.sex}));
-        if (d.date_expiry) setFn(p=>({...p,exp_n:d.date_expiry}));
-        if (d.fan) setFanManual((data.lines[d.fan-1]||'').replace(/\D/g,''));
+        if (frontMapMode === 'normal') {
+          const d = data.detected;
+          if (d.full_name)   setFn(p=>({...p,amh_n:d.full_name,eng_n:d.full_name+1}));
+          if (d.date_birth)  setFn(p=>({...p,dob_n:d.date_birth}));
+          if (d.sex)         setFn(p=>({...p,sex_n:d.sex}));
+          if (d.date_expiry) setFn(p=>({...p,exp_n:d.date_expiry}));
+          if (d.fan) setFanManual((data.lines[d.fan-1]||'').replace(/\D/g,''));
+        }
       } catch { toast.error('Front OCR failed'); }
       finally { setLoad('ocr_front', false); }
     })();
   }, [frontFile]);
 
-  // ── Auto OCR back ──────────────────────────────────────────────
   useEffect(() => {
     if (!backFile) return;
     (async () => {
@@ -85,21 +127,22 @@ export default function Convert() {
         fd.append('file', backFile);
         const { data } = await API.post('/convert/ocr/back', fd);
         setBackLines(data.lines);
-        const d = data.detected;
-        if (d.phone)      setBn(p=>({...p,phone_n:d.phone}));
-        if (d.fin)      { setBn(p=>({...p,fin_n:d.fin})); setFinManual((data.lines[d.fin-1]||'').replace(/\D/g,'')); }
-        if (d.addr_amh)   setBn(p=>({...p,addr_amh_n:d.addr_amh}));
-        if (d.addr_eng)   setBn(p=>({...p,addr_eng_n:d.addr_eng}));
-        if (d.zone_amh)   setBn(p=>({...p,zone_amh_n:d.zone_amh}));
-        if (d.zone_eng)   setBn(p=>({...p,zone_eng_n:d.zone_eng}));
-        if (d.woreda_amh) setBn(p=>({...p,woreda_amh_n:d.woreda_amh}));
-        if (d.woreda_eng) setBn(p=>({...p,woreda_eng_n:d.woreda_eng}));
+        if (backMapMode === 'normal') {
+          const d = data.detected;
+          if (d.phone)      setBn(p=>({...p,phone_n:d.phone}));
+          if (d.fin)      { setBn(p=>({...p,fin_n:d.fin})); setFinManual((data.lines[d.fin-1]||'').replace(/\D/g,'')); }
+          if (d.addr_amh)   setBn(p=>({...p,addr_amh_n:d.addr_amh}));
+          if (d.addr_eng)   setBn(p=>({...p,addr_eng_n:d.addr_eng}));
+          if (d.zone_amh)   setBn(p=>({...p,zone_amh_n:d.zone_amh}));
+          if (d.zone_eng)   setBn(p=>({...p,zone_eng_n:d.zone_eng}));
+          if (d.woreda_amh) setBn(p=>({...p,woreda_amh_n:d.woreda_amh}));
+          if (d.woreda_eng) setBn(p=>({...p,woreda_eng_n:d.woreda_eng}));
+        }
       } catch { toast.error('Back OCR failed'); }
       finally { setLoad('ocr_back', false); }
     })();
   }, [backFile]);
 
-  // ── Auto crop profile ──────────────────────────────────────────
   useEffect(() => {
     if (!profileFile) return;
     (async () => {
@@ -115,7 +158,6 @@ export default function Convert() {
     })();
   }, [profileFile]);
 
-  // ── Admin manual photo/qr handlers ────────────────────────────
   const handleManualPhoto = (file) => {
     if (!file) return;
     const r = new FileReader();
@@ -129,32 +171,9 @@ export default function Convert() {
     r.readAsDataURL(file);
   };
 
-  // ── Field label helpers for OCR table ─────────────────────────
-  const getFrontLabel = (i) => {
-    const map = {
-      [fn.amh_n-1]: 'አማርኛ ስም',
-      [fn.eng_n-1]: 'እንግሊዝኛ ስም',
-      [fn.dob_n-1]: 'የትውልድ ቀን',
-      [fn.sex_n-1]: 'ፆታ',
-      [fn.exp_n-1]: 'ቀን ማብቂያ',
-    };
-    return map[i] || '';
-  };
-  const getBackLabel = (i) => {
-    const map = {
-      [bn.phone_n-1]:     'ስልክ',
-      [bn.fin_n-1]:       'FIN',
-      [bn.addr_amh_n-1]:  'አድራሻ (አማ)',
-      [bn.addr_eng_n-1]:  'አድራሻ (Eng)',
-      [bn.zone_amh_n-1]:  'ዞን (አማ)',
-      [bn.zone_eng_n-1]:  'ዞን (Eng)',
-      [bn.woreda_amh_n-1]:'ወረዳ (አማ)',
-      [bn.woreda_eng_n-1]:'ወረዳ (Eng)',
-    };
-    return map[i] || '';
-  };
+  const getFrontLabel = (i) => ({ [fn.amh_n-1]:'አማርኛ ስም',[fn.eng_n-1]:'እንግሊዝኛ ስም',[fn.dob_n-1]:'የትውልድ ቀን',[fn.sex_n-1]:'ፆታ',[fn.exp_n-1]:'ቀን ማብቂያ' })[i]||'';
+  const getBackLabel  = (i) => ({ [bn.phone_n-1]:'ስልክ',[bn.fin_n-1]:'FIN',[bn.addr_amh_n-1]:'አድራሻ (አማ)',[bn.addr_eng_n-1]:'አድራሻ (Eng)',[bn.zone_amh_n-1]:'ዞን (አማ)',[bn.zone_eng_n-1]:'ዞን (Eng)',[bn.woreda_amh_n-1]:'ወረዳ (አማ)',[bn.woreda_eng_n-1]:'ወረዳ (Eng)' })[i]||'';
 
-  // ── Generate ───────────────────────────────────────────────────
   const handleContinue = async () => {
     if (!frontFile) return toast.error('ID Front ያስገቡ');
     if (!backFile)  return toast.error('ID Back ያስገቡ');
@@ -164,73 +183,153 @@ export default function Convert() {
     const snSuffix = Math.floor(Math.random() * 1000000).toString().padStart(6,'0');
     const snVal    = snPrefix + snSuffix;
 
-    setGenerating(true);
-    setMergedResult('');
+    setGenerating(true); setMergedResult('');
     try {
       const fdF = new FormData();
-      fdF.append('photo_b64',  photob64);
-      fdF.append('fan_digits', fanManual);
-      fdF.append('field_nums', JSON.stringify(fn));
-      fdF.append('ocr_lines',  JSON.stringify(frontLines));
+      fdF.append('photo_b64', photob64); fdF.append('fan_digits', fanManual);
+      fdF.append('field_nums', JSON.stringify(fn)); fdF.append('ocr_lines', JSON.stringify(frontLines));
       const respF = await API.post('/convert/generate/front', fdF, { responseType:'blob' });
       const frontUrl = URL.createObjectURL(respF.data);
 
       const fdB = new FormData();
-      fdB.append('qr_b64',     qrb64);
-      fdB.append('fin_digits', finManual);
-      fdB.append('field_nums', JSON.stringify(bn));
-      fdB.append('ocr_lines',  JSON.stringify(backLines));
-      fdB.append('sn_val',     snVal);
-      fdB.append('nat_am',     natAm);
-      fdB.append('nat_en',     natEn);
+      fdB.append('qr_b64', qrb64); fdB.append('fin_digits', finManual);
+      fdB.append('field_nums', JSON.stringify(bn)); fdB.append('ocr_lines', JSON.stringify(backLines));
+      fdB.append('sn_val', snVal); fdB.append('nat_am', natAm); fdB.append('nat_en', natEn);
       const respB = await API.post('/convert/generate/back', fdB, { responseType:'blob' });
       const backUrl = URL.createObjectURL(respB.data);
 
       const imgF = await loadImg(frontUrl);
       const imgB = await loadImg(backUrl);
-      const gap   = 20;
-      const totalW = imgF.width + gap + imgB.width;
-      const totalH = Math.max(imgF.height, imgB.height);
-      const canvas  = document.createElement('canvas');
-      canvas.width  = totalW;
-      canvas.height = totalH;
+      const gap = 20, totalW = imgF.width+gap+imgB.width, totalH = Math.max(imgF.height,imgB.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = totalW; canvas.height = totalH;
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(0,0,totalW,totalH);
-      ctx.drawImage(imgF, 0, 0);
-      ctx.drawImage(imgB, imgF.width + gap, 0);
-      const merged = canvas.toDataURL('image/jpeg', 0.92);
-      setMergedResult(merged);
+      ctx.fillStyle='#f8fafc'; ctx.fillRect(0,0,totalW,totalH);
+      ctx.drawImage(imgF,0,0); ctx.drawImage(imgB,imgF.width+gap,0);
+      setMergedResult(canvas.toDataURL('image/jpeg',0.92));
 
       await API.post('/auth/deduct', { amount: 20 });
       await refreshBalance();
       toast.success('✅ ID ተዘጋጀ!');
     } catch(e) {
       toast.error(e.response?.data?.detail || 'Failed');
-    } finally {
-      setGenerating(false);
-    }
+    } finally { setGenerating(false); }
   };
 
-  const loadImg = src => new Promise((res,rej) => {
-    const img = new Image();
-    img.onload  = () => res(img);
-    img.onerror = rej;
-    img.src     = src;
-  });
-
+  const loadImg = src => new Promise((res,rej) => { const img=new Image(); img.onload=()=>res(img); img.onerror=rej; img.src=src; });
   const anyLoading = loading.ocr_front || loading.ocr_back || loading.crop;
 
-  // shared table style
-  const thStyle = { padding:'6px 8px', textAlign:'left', color:'var(--text-muted)', fontWeight:700, fontSize:11 };
-  const tdStyle = { padding:'4px 8px', color:'var(--text-muted)', fontSize:12 };
-  const inputStyle = { width:'100%', padding:'4px 6px', border:'1px solid var(--border)', borderRadius:4, fontSize:12, background:'var(--bg)', color:'var(--text)' };
+  const thStyle    = { padding:'6px 8px', textAlign:'left', color:'var(--text-muted)', fontWeight:700, fontSize:11 };
+  const tdStyle    = { padding:'4px 8px', color:'var(--text-muted)', fontSize:12 };
+  const inpStyle   = { width:'100%', padding:'4px 6px', border:'1px solid var(--border)', borderRadius:4, fontSize:12, background:'var(--bg)', color:'var(--text)' };
+
+  // ── Admin OCR section (front or back) ─────────────────────────
+  const AdminOCRSection = ({ side }) => {
+    const isFront  = side === 'front';
+    const lines    = isFront ? frontLines : backLines;
+    const mapMode  = isFront ? frontMapMode : backMapMode;
+    const setMode  = isFront ? setFrontMapMode : setBackMapMode;
+    const mapping  = isFront ? fn : bn;
+    const setMap   = isFront ? setFn : setBn;
+    const fields   = isFront ? FRONT_MAP_FIELDS : BACK_MAP_FIELDS;
+    const getLabel = isFront ? getFrontLabel : getBackLabel;
+
+    if (lines.length === 0) return null;
+
+    return (
+      <div className="card">
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12,flexWrap:'wrap'}}>
+          <p className="card-title" style={{margin:0}}>✏️ {isFront?'Front':'Back'} OCR — ማስተካከያ</p>
+          <div style={{display:'flex',gap:6,marginLeft:'auto'}}>
+            {['normal','manual'].map(m=>(
+              <button key={m}
+                className={`btn btn-sm ${mapMode===m?'btn-primary':'btn-outline'}`}
+                style={{fontSize:11,padding:'4px 12px'}}
+                onClick={()=>setMode(m)}>
+                {m==='normal'?'1️⃣ Normal':'2️⃣ Manual'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* NORMAL: editable value table */}
+        {mapMode==='normal' && (
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr style={{background:'var(--bg)'}}>
+                  <th style={{...thStyle,width:32}}>#</th>
+                  <th style={{...thStyle,width:110}}>Field</th>
+                  <th style={thStyle}>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line,i)=>{
+                  const label=getLabel(i);
+                  return (
+                    <tr key={i} style={{borderTop:'1px solid var(--border)',background:label?'rgba(59,130,246,0.06)':'transparent'}}>
+                      <td style={tdStyle}>{i+1}</td>
+                      <td style={{...tdStyle,color:'#3b82f6',fontWeight:600}}>{label}</td>
+                      <td style={{padding:'3px 4px'}}>
+                        <input value={line} style={inpStyle} onChange={e=>{
+                          const arr=isFront?[...frontLines]:[...backLines];
+                          arr[i]=e.target.value;
+                          isFront?setFrontLines(arr):setBackLines(arr);
+                        }}/>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* MANUAL: assign line numbers to fields */}
+        {mapMode==='manual' && (
+          <div>
+            {/* Quick line reference */}
+            <div style={{marginBottom:12,padding:'8px 10px',background:'var(--bg)',borderRadius:6}}>
+              <p style={{fontSize:11,color:'var(--text-muted)',marginBottom:6,fontWeight:600}}>📋 OCR Lines ({lines.length})</p>
+              <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                {lines.map((line,i)=>(
+                  <span key={i} style={{background:'var(--border)',borderRadius:4,padding:'2px 7px',fontSize:10,whiteSpace:'nowrap'}}>
+                    <strong>{i+1}</strong>: {line.slice(0,20)}{line.length>20?'…':''}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Field → line number grid */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr auto',rowGap:8,columnGap:12,alignItems:'center',fontSize:12,marginBottom:14}}>
+              {fields.map(([key,label])=>[
+                <span key={key+'l'} style={{fontWeight:500}}>{label}</span>,
+                <div key={key+'n'} style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:11,color:'var(--text-muted)'}}>line</span>
+                  <NInput value={mapping[key]} onChange={v=>setMap(p=>({...p,[key]:v}))}/>
+                  <span style={{fontSize:11,color:'var(--text-muted)',maxWidth:90,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    → {lines[mapping[key]-1]?.slice(0,14)||'—'}
+                  </span>
+                </div>
+              ])}
+            </div>
+
+            <button className="btn btn-success btn-sm" onClick={saveMapping}>
+              💾 Save Mapping to Firebase
+            </button>
+            <p style={{fontSize:10,color:'var(--text-muted)',marginTop:5}}>
+              ሌላ ፋይል ሲጫን ይህ mapping ይጠቀማል
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div>
       <h1 className="page-title">🪪 ID Convert</h1>
 
-      {/* Upload */}
       <div className="card">
         <div className="grid-3">
           <UploadBox label="📸 ID Front"     file={frontFile}   loading={loading.ocr_front} onChange={setFrontFile}/>
@@ -239,108 +338,35 @@ export default function Convert() {
         </div>
       </div>
 
-      {/* Admin: Manual Photo & QR override */}
       {isAdmin && (
         <div className="card">
           <p className="card-title">🔧 Admin — ፎቶ እና QR Manual Upload</p>
           <div className="grid-2">
             <div>
               <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>📸 ፎቶ (manually upload)</p>
-              <div className="upload-box" style={{cursor:'pointer',minHeight:100}}
-                onClick={()=>manualPhotoRef.current.click()}>
+              <div className="upload-box" style={{cursor:'pointer',minHeight:100}} onClick={()=>manualPhotoRef.current.click()}>
                 {photob64
-                  ? <img src={`data:image/png;base64,${photob64}`} alt="photo"
-                      style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
-                  : <><div style={{fontSize:24}}>🖼️</div><p style={{fontSize:11}}>ፎቶ ምረጥ</p></>
-                }
-                <input ref={manualPhotoRef} type="file" accept="image/*" style={{display:'none'}}
-                  onChange={e=>handleManualPhoto(e.target.files[0])}/>
+                  ? <img src={`data:image/png;base64,${photob64}`} alt="photo" style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
+                  : <><div style={{fontSize:24}}>🖼️</div><p style={{fontSize:11}}>ፎቶ ምረጥ</p></>}
+                <input ref={manualPhotoRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleManualPhoto(e.target.files[0])}/>
               </div>
             </div>
             <div>
               <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>📷 QR Code (manually upload)</p>
-              <div className="upload-box" style={{cursor:'pointer',minHeight:100}}
-                onClick={()=>manualQrRef.current.click()}>
+              <div className="upload-box" style={{cursor:'pointer',minHeight:100}} onClick={()=>manualQrRef.current.click()}>
                 {qrb64
-                  ? <img src={`data:image/png;base64,${qrb64}`} alt="qr"
-                      style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
-                  : <><div style={{fontSize:24}}>📷</div><p style={{fontSize:11}}>QR ምረጥ</p></>
-                }
-                <input ref={manualQrRef} type="file" accept="image/*" style={{display:'none'}}
-                  onChange={e=>handleManualQr(e.target.files[0])}/>
+                  ? <img src={`data:image/png;base64,${qrb64}`} alt="qr" style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
+                  : <><div style={{fontSize:24}}>📷</div><p style={{fontSize:11}}>QR ምረጥ</p></>}
+                <input ref={manualQrRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleManualQr(e.target.files[0])}/>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Admin: Front OCR editable table */}
-      {isAdmin && frontLines.length > 0 && (
-        <div className="card">
-          <p className="card-title">✏️ Front OCR — ማስተካከያ</p>
-          <div style={{overflowX:'auto'}}>
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-              <thead>
-                <tr style={{background:'var(--bg)'}}>
-                  <th style={{...thStyle,width:32}}>#</th>
-                  <th style={{...thStyle,width:110}}>Field</th>
-                  <th style={thStyle}>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {frontLines.map((line, i) => {
-                  const label = getFrontLabel(i);
-                  return (
-                    <tr key={i} style={{borderTop:'1px solid var(--border)', background: label ? 'rgba(59,130,246,0.06)' : 'transparent'}}>
-                      <td style={tdStyle}>{i+1}</td>
-                      <td style={{...tdStyle, color:'#3b82f6', fontWeight:600}}>{label}</td>
-                      <td style={{padding:'3px 4px'}}>
-                        <input value={line} style={inputStyle}
-                          onChange={e=>{const arr=[...frontLines];arr[i]=e.target.value;setFrontLines(arr);}}/>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {isAdmin && <AdminOCRSection side="front"/>}
+      {isAdmin && <AdminOCRSection side="back"/>}
 
-      {/* Admin: Back OCR editable table */}
-      {isAdmin && backLines.length > 0 && (
-        <div className="card">
-          <p className="card-title">✏️ Back OCR — ማስተካከያ</p>
-          <div style={{overflowX:'auto'}}>
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-              <thead>
-                <tr style={{background:'var(--bg)'}}>
-                  <th style={{...thStyle,width:32}}>#</th>
-                  <th style={{...thStyle,width:110}}>Field</th>
-                  <th style={thStyle}>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {backLines.map((line, i) => {
-                  const label = getBackLabel(i);
-                  return (
-                    <tr key={i} style={{borderTop:'1px solid var(--border)', background: label ? 'rgba(59,130,246,0.06)' : 'transparent'}}>
-                      <td style={tdStyle}>{i+1}</td>
-                      <td style={{...tdStyle, color:'#3b82f6', fontWeight:600}}>{label}</td>
-                      <td style={{padding:'3px 4px'}}>
-                        <input value={line} style={inputStyle}
-                          onChange={e=>{const arr=[...backLines];arr[i]=e.target.value;setBackLines(arr);}}/>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* FAN / FIN */}
       <div className="card">
         <div className="grid-2">
           <div className="form-group" style={{marginBottom:0}}>
@@ -356,16 +382,12 @@ export default function Convert() {
         </div>
       </div>
 
-      {/* Continue button */}
-      <button
-        className="btn btn-primary btn-full"
+      <button className="btn btn-primary btn-full"
         style={{ padding:'14px', fontSize:15, fontWeight:700, marginBottom:16 }}
-        onClick={handleContinue}
-        disabled={generating || anyLoading}>
-        {generating ? '⏳ እየተዘጋጀ ነው...' : anyLoading ? '⏳ ምስሎች እየተዘጋጁ...' : '▶️ Continue — ID አዘጋጅ (20 ETB)'}
+        onClick={handleContinue} disabled={generating || anyLoading}>
+        {generating?'⏳ እየተዘጋጀ ነው...':anyLoading?'⏳ ምስሎች እየተዘጋጁ...':'▶️ Continue — ID አዘጋጅ (20 ETB)'}
       </button>
 
-      {/* Merged result */}
       {mergedResult && (
         <div className="card" style={{textAlign:'center'}}>
           <p className="card-title">✅ ተዘጋጀ!</p>
