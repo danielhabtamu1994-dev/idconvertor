@@ -210,7 +210,8 @@ def _get_ocr_mode():
 def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str) -> dict:
     import requests as _req, json as _json, base64 as _b64
     img_b64 = _b64.b64encode(image_bytes).decode()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+
     body = {
         "contents": [{
             "parts": [
