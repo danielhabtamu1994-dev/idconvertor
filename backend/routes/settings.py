@@ -7,12 +7,14 @@ from firebase import firebase_get, firebase_set
 router = APIRouter()
 
 class SettingsPayload(BaseModel):
-    pos:        dict[str, Any]
-    size:       dict[str, Any]
-    pos_back:   dict[str, Any]
-    size_back:  dict[str, Any]
-    nat_am:     str = "ኢትዮጵያዊ"
-    nat_en:     str = "Ethiopian"
+    pos:              dict[str, Any]
+    size:             dict[str, Any]
+    pos_back:         dict[str, Any]
+    size_back:        dict[str, Any]
+    nat_am:           str = "ኢትዮጵያዊ"
+    nat_en:           str = "Ethiopian"
+    field_map_front:  dict[str, Any] = {}
+    field_map_back:   dict[str, Any] = {}
 
 class ApiSettingsPayload(BaseModel):
     ocr_mode:   str = "normal"   # "normal" or "gemini"
