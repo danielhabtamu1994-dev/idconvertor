@@ -221,7 +221,9 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str) -> dict:
         "generationConfig": {"temperature": 0, "maxOutputTokens": 512}
     }
     resp = _req.post(url, json=body, timeout=30)
-    resp.raise_for_status()
+    if not resp.ok:
+        print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
+        resp.raise_for_status()
     raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     # Strip markdown code fences if present
     if raw.startswith("```"):
