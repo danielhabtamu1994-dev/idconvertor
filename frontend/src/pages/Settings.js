@@ -161,6 +161,8 @@ export default function Settings() {
   const [bgBack,   setBgBack]   = useState('');
   const [natAm,    setNatAm]    = useState('ኢትዮጵያዊ');
   const [natEn,    setNatEn]    = useState('Ethiopian');
+  const [fieldMapFront, setFieldMapFront] = useState({});
+  const [fieldMapBack,  setFieldMapBack]  = useState({});
   const [ocrMode,  setOcrMode]  = useState('normal');
   const [geminiKey,  setGeminiKey]  = useState('');
   const [geminiModel,setGeminiModel]= useState('gemini-2.5-flash');
@@ -174,6 +176,8 @@ export default function Settings() {
       if(data.size_back) setSizeBack(p=>({...p,...data.size_back}));
       if(data.nat_am)    setNatAm(data.nat_am);
       if(data.nat_en)    setNatEn(data.nat_en);
+      if(data.field_map_front) setFieldMapFront(data.field_map_front);
+      if(data.field_map_back)  setFieldMapBack(data.field_map_back);
     // Load API settings separately
     API.get('/settings/api-settings').then(({data:a})=>{
       if(a.ocr_mode)   setOcrMode(a.ocr_mode);
@@ -189,7 +193,7 @@ export default function Settings() {
   const save = async()=>{
     setSaving(true);
     try{
-      await API.put('/settings/',{pos,size,pos_back:posBack,size_back:sizeBack,nat_am:natAm,nat_en:natEn});
+      await API.put('/settings/',{pos,size,pos_back:posBack,size_back:sizeBack,nat_am:natAm,nat_en:natEn,field_map_front:fieldMapFront,field_map_back:fieldMapBack});
       toast.success('✅ Settings saved!');
     }catch{ toast.error('Save failed'); }
     finally{ setSaving(false); }
