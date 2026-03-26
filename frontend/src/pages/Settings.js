@@ -283,6 +283,7 @@ export default function Settings() {
 
           {/* Gemini key input — only when gemini selected */}
           {ocrMode==='gemini' && (
+            <>
             <div className="form-group">
               <label>🔑 Gemini API Key</label>
               <input className="form-input"
@@ -304,6 +305,7 @@ export default function Settings() {
                 ምሳሌ: gemini-2.5-flash · gemini-2.0-flash · gemini-1.5-flash
               </p>
             </div>
+            </>
           )}
 
           {ocrMode==='normal' && (
