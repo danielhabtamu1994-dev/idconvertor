@@ -148,9 +148,10 @@ export default function Convert() {
   const [fn, setFn] = useState({ amh_n:5,eng_n:6,dob_n:8,sex_n:10,exp_n:12 });
   const [bn, setBn] = useState({ phone_n:3,fin_n:5,addr_amh_n:7,addr_eng_n:8,zone_amh_n:9,zone_eng_n:10,woreda_amh_n:11,woreda_eng_n:12 });
 
-  // Track whether a saved manual mapping was loaded from Firebase
-  // If true, OCR auto-detect will NOT overwrite fn/bn
-  const [hasSavedMapping, setHasSavedMapping] = useState(false);
+  // useRef so closures always see the latest value without re-running effects
+  const hasSavedMappingRef = useRef(false);
+  const [hasSavedMapping,  setHasSavedMapping]  = useState(false);
+  const setSavedMapping = (v) => { hasSavedMappingRef.current = v; setHasSavedMapping(v); };
 
   const [fanManual, setFanManual] = useState('');
   const [finManual, setFinManual] = useState('');
@@ -169,7 +170,7 @@ export default function Convert() {
       if(data.nat_en) setNatEn(data.nat_en);
       if(data.field_map_front && Object.keys(data.field_map_front).length > 0) {
         setFn(p=>({...p,...data.field_map_front}));
-        setHasSavedMapping(true);  // ← saved mapping exists, block OCR auto-detect
+        setSavedMapping(true);  // ← saved mapping exists, block OCR auto-detect
       }
       if(data.field_map_back && Object.keys(data.field_map_back).length > 0) {
         setBn(p=>({...p,...data.field_map_back}));
@@ -196,7 +197,7 @@ export default function Convert() {
         field_map_front: fn,
         field_map_back:  bn,
       });
-      setHasSavedMapping(true);
+      setSavedMapping(true);
       toast.success('✅ Mapping saved!');
     } catch { toast.error('Save failed'); }
   }, [fn, bn, natAm, natEn]);
@@ -211,8 +212,8 @@ export default function Convert() {
         fd.append('file', frontFile);
         const { data } = await API.post('/convert/ocr/front', fd);
         setFrontLines(data.lines);
-        // Only auto-map if no saved mapping exists
-        if (!hasSavedMapping) {
+        // Only auto-map if no saved mapping exists (use ref for fresh value in closure)
+        if (!hasSavedMappingRef.current) {
           const d = data.detected;
           if (d.full_name)   setFn(p=>({...p,amh_n:d.full_name,eng_n:d.full_name+1}));
           if (d.date_birth)  setFn(p=>({...p,dob_n:d.date_birth}));
@@ -235,7 +236,7 @@ export default function Convert() {
         fd.append('file', backFile);
         const { data } = await API.post('/convert/ocr/back', fd);
         setBackLines(data.lines);
-        if (!hasSavedMapping) {
+        if (!hasSavedMappingRef.current) {
           const d = data.detected;
           if (d.phone)      setBn(p=>({...p,phone_n:d.phone}));
           if (d.fin)      { setBn(p=>({...p,fin_n:d.fin})); setFinManual((data.lines[d.fin-1]||'').replace(/\D/g,'')); }
@@ -362,7 +363,7 @@ export default function Convert() {
             <div style={{fontSize:11,color:'#16a34a',background:'rgba(22,163,74,0.08)',borderRadius:6,padding:'6px 10px',marginBottom:10}}>
               ✅ Saved mapping is active — OCR auto-detect ይሰረዛል
               <button className="btn btn-sm btn-outline" style={{marginLeft:8,fontSize:10,padding:'2px 8px'}}
-                onClick={()=>setHasSavedMapping(false)}>
+                onClick={()=>setSavedMapping(false)}>
                 Reset to auto
               </button>
             </div>
