@@ -162,7 +162,8 @@ export default function Settings() {
   const [natAm,    setNatAm]    = useState('ኢትዮጵያዊ');
   const [natEn,    setNatEn]    = useState('Ethiopian');
   const [ocrMode,  setOcrMode]  = useState('normal');
-  const [geminiKey,setGeminiKey]= useState('');
+  const [geminiKey,  setGeminiKey]  = useState('');
+  const [geminiModel,setGeminiModel]= useState('gemini-2.5-flash');
   const fgRef = useRef(); const bgRef = useRef();
 
   useEffect(()=>{
@@ -176,7 +177,8 @@ export default function Settings() {
     // Load API settings separately
     API.get('/settings/api-settings').then(({data:a})=>{
       if(a.ocr_mode)   setOcrMode(a.ocr_mode);
-      if(a.gemini_key) setGeminiKey(a.gemini_key);
+      if(a.gemini_key)   setGeminiKey(a.gemini_key);
+      if(a.gemini_model) setGeminiModel(a.gemini_model);
     }).catch(()=>{});
     }).catch(()=>{});
     API.get('/auth/deposit-settings').then(({data})=>{
@@ -202,7 +204,7 @@ export default function Settings() {
 
   const saveApiSettings = async () => {
     try {
-      await API.put('/settings/api-settings', { ocr_mode: ocrMode, gemini_key: geminiKey });
+      await API.put('/settings/api-settings', { ocr_mode: ocrMode, gemini_key: geminiKey, gemini_model: geminiModel });
       toast.success('✅ API Settings saved!');
     } catch { toast.error('Failed'); }
   };
@@ -286,6 +288,16 @@ export default function Settings() {
                 onChange={e=>setGeminiKey(e.target.value)}/>
               <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
                 Google AI Studio → <strong>makersuite.google.com</strong> → Get API Key
+              </p>
+            </div>
+            <div className="form-group" style={{marginTop:12}}>
+              <label>🤖 Gemini Model</label>
+              <input className="form-input"
+                placeholder="gemini-2.5-flash"
+                value={geminiModel}
+                onChange={e=>setGeminiModel(e.target.value)}/>
+              <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
+                ምሳሌ: gemini-2.5-flash · gemini-2.0-flash · gemini-1.5-flash
               </p>
             </div>
           )}
