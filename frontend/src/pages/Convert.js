@@ -38,7 +38,7 @@ const BACK_MAP_FIELDS = [
   ['woreda_amh_n','ወረዳ (አማ)'],['woreda_eng_n','ወረዳ (Eng)'],
 ];
 
-// ── AdminOCRSection — defined OUTSIDE Convert to avoid remount ──
+// Defined OUTSIDE to prevent remount on every render
 function AdminOCRSection({ side, lines, setLines, mapping, setMap, fields, getLabel, saveMapping }) {
   const [mapMode, setMapMode] = useState('normal');
 
@@ -64,7 +64,6 @@ function AdminOCRSection({ side, lines, setLines, mapping, setMap, fields, getLa
         </div>
       </div>
 
-      {/* NORMAL: editable value table */}
       {mapMode==='normal' && (
         <div style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
@@ -95,7 +94,6 @@ function AdminOCRSection({ side, lines, setLines, mapping, setMap, fields, getLa
         </div>
       )}
 
-      {/* MANUAL: assign line numbers to fields */}
       {mapMode==='manual' && (
         <div>
           <div style={{marginBottom:12,padding:'8px 10px',background:'var(--bg)',borderRadius:6}}>
@@ -148,10 +146,11 @@ export default function Convert() {
   const [fn, setFn] = useState({ amh_n:5,eng_n:6,dob_n:8,sex_n:10,exp_n:12 });
   const [bn, setBn] = useState({ phone_n:3,fin_n:5,addr_amh_n:7,addr_eng_n:8,zone_amh_n:9,zone_eng_n:10,woreda_amh_n:11,woreda_eng_n:12 });
 
-  // useRef so closures always see the latest value without re-running effects
-  const hasSavedMappingRef  = useRef(false);
-  const settingsLoadedRef   = useRef(false);  // true after Firebase settings loaded
-  const [hasSavedMapping,  setHasSavedMapping]  = useState(false);
+  // settingsLoaded: OCR effects run only AFTER this is true
+  // hasSavedMapping: if true, OCR auto-detect will NOT overwrite fn/bn
+  const [settingsLoaded,  setSettingsLoaded]  = useState(false);
+  const [hasSavedMapping, setHasSavedMapping] = useState(false);
+  const hasSavedMappingRef = useRef(false);
   const setSavedMapping = (v) => { hasSavedMappingRef.current = v; setHasSavedMapping(v); };
 
   const [fanManual, setFanManual] = useState('');
@@ -164,20 +163,21 @@ export default function Convert() {
   const manualPhotoRef = useRef();
   const manualQrRef    = useRef();
 
-  // Load settings + saved mappings from Firebase on mount
+  // ── Load settings from Firebase on mount ──────────────────────
+  // MUST complete before OCR effects run (settingsLoaded gates them)
   useEffect(()=>{
     API.get('/settings/').then(({data})=>{
       if(data.nat_am) setNatAm(data.nat_am);
       if(data.nat_en) setNatEn(data.nat_en);
       if(data.field_map_front && Object.keys(data.field_map_front).length > 0) {
         setFn(p=>({...p,...data.field_map_front}));
-        setSavedMapping(true);  // ← saved mapping exists, block OCR auto-detect
+        setSavedMapping(true);
       }
       if(data.field_map_back && Object.keys(data.field_map_back).length > 0) {
         setBn(p=>({...p,...data.field_map_back}));
       }
-      settingsLoadedRef.current = true;  // settings loaded, OCR auto-detect can now check safely
-    }).catch(()=>{ settingsLoadedRef.current = true; });  // even on error, unblock
+    }).catch(()=>{})
+    .finally(()=>{ setSettingsLoaded(true); });  // always unblock
   },[]);
 
   const [mergedResult, setMergedResult] = useState('');
@@ -185,7 +185,6 @@ export default function Convert() {
   const [loading,      setLoading]      = useState({});
   const setLoad = (k,v) => setLoading(p=>({...p,[k]:v}));
 
-  // Save mapping to Firebase
   const saveMapping = useCallback(async () => {
     try {
       const { data: cur } = await API.get('/settings/');
@@ -205,8 +204,9 @@ export default function Convert() {
   }, [fn, bn, natAm, natEn]);
 
   // ── Auto OCR front ─────────────────────────────────────────────
+  // Depends on settingsLoaded — will NOT run until settings load completes
   useEffect(() => {
-    if (!frontFile) return;
+    if (!frontFile || !settingsLoaded) return;
     (async () => {
       setLoad('ocr_front', true);
       try {
@@ -214,30 +214,22 @@ export default function Convert() {
         fd.append('file', frontFile);
         const { data } = await API.post('/convert/ocr/front', fd);
         setFrontLines(data.lines);
-        // Wait up to 3s for settings to load, then check saved mapping flag
-        const waitAndApplyFront = async () => {
-          let waited = 0;
-          while (!settingsLoadedRef.current && waited < 3000) {
-            await new Promise(r => setTimeout(r, 50)); waited += 50;
-          }
-          if (!hasSavedMappingRef.current) {
-            const d = data.detected;
-            if (d.full_name)   setFn(p=>({...p,amh_n:d.full_name,eng_n:d.full_name+1}));
-            if (d.date_birth)  setFn(p=>({...p,dob_n:d.date_birth}));
-            if (d.sex)         setFn(p=>({...p,sex_n:d.sex}));
-            if (d.date_expiry) setFn(p=>({...p,exp_n:d.date_expiry}));
-            if (d.fan) setFanManual((data.lines[d.fan-1]||'').replace(/\D/g,''));
-          }
-        };
-        waitAndApplyFront();
+        if (!hasSavedMappingRef.current) {
+          const d = data.detected;
+          if (d.full_name)   setFn(p=>({...p,amh_n:d.full_name,eng_n:d.full_name+1}));
+          if (d.date_birth)  setFn(p=>({...p,dob_n:d.date_birth}));
+          if (d.sex)         setFn(p=>({...p,sex_n:d.sex}));
+          if (d.date_expiry) setFn(p=>({...p,exp_n:d.date_expiry}));
+          if (d.fan) setFanManual((data.lines[d.fan-1]||'').replace(/\D/g,''));
+        }
       } catch { toast.error('Front OCR failed'); }
       finally { setLoad('ocr_front', false); }
     })();
-  }, [frontFile]);
+  }, [frontFile, settingsLoaded]);
 
   // ── Auto OCR back ──────────────────────────────────────────────
   useEffect(() => {
-    if (!backFile) return;
+    if (!backFile || !settingsLoaded) return;
     (async () => {
       setLoad('ocr_back', true);
       try {
@@ -245,28 +237,21 @@ export default function Convert() {
         fd.append('file', backFile);
         const { data } = await API.post('/convert/ocr/back', fd);
         setBackLines(data.lines);
-        const waitAndApplyBack = async () => {
-          let waited = 0;
-          while (!settingsLoadedRef.current && waited < 3000) {
-            await new Promise(r => setTimeout(r, 50)); waited += 50;
-          }
-          if (!hasSavedMappingRef.current) {
-            const d = data.detected;
-            if (d.phone)      setBn(p=>({...p,phone_n:d.phone}));
-            if (d.fin)      { setBn(p=>({...p,fin_n:d.fin})); setFinManual((data.lines[d.fin-1]||'').replace(/\D/g,'')); }
-            if (d.addr_amh)   setBn(p=>({...p,addr_amh_n:d.addr_amh}));
-            if (d.addr_eng)   setBn(p=>({...p,addr_eng_n:d.addr_eng}));
-            if (d.zone_amh)   setBn(p=>({...p,zone_amh_n:d.zone_amh}));
-            if (d.zone_eng)   setBn(p=>({...p,zone_eng_n:d.zone_eng}));
-            if (d.woreda_amh) setBn(p=>({...p,woreda_amh_n:d.woreda_amh}));
-            if (d.woreda_eng) setBn(p=>({...p,woreda_eng_n:d.woreda_eng}));
-          }
-        };
-        waitAndApplyBack();
+        if (!hasSavedMappingRef.current) {
+          const d = data.detected;
+          if (d.phone)      setBn(p=>({...p,phone_n:d.phone}));
+          if (d.fin)      { setBn(p=>({...p,fin_n:d.fin})); setFinManual((data.lines[d.fin-1]||'').replace(/\D/g,'')); }
+          if (d.addr_amh)   setBn(p=>({...p,addr_amh_n:d.addr_amh}));
+          if (d.addr_eng)   setBn(p=>({...p,addr_eng_n:d.addr_eng}));
+          if (d.zone_amh)   setBn(p=>({...p,zone_amh_n:d.zone_amh}));
+          if (d.zone_eng)   setBn(p=>({...p,zone_eng_n:d.zone_eng}));
+          if (d.woreda_amh) setBn(p=>({...p,woreda_amh_n:d.woreda_amh}));
+          if (d.woreda_eng) setBn(p=>({...p,woreda_eng_n:d.woreda_eng}));
+        }
       } catch { toast.error('Back OCR failed'); }
       finally { setLoad('ocr_back', false); }
     })();
-  }, [backFile]);
+  }, [backFile, settingsLoaded]);
 
   // ── Auto crop profile ──────────────────────────────────────────
   useEffect(() => {
@@ -371,14 +356,13 @@ export default function Convert() {
         </div>
       </div>
 
-      {/* Admin: Manual Photo & QR override */}
       {isAdmin && (
         <div className="card">
           <p className="card-title">🔧 Admin — ፎቶ እና QR Manual Upload</p>
           {hasSavedMapping && (
-            <div style={{fontSize:11,color:'#16a34a',background:'rgba(22,163,74,0.08)',borderRadius:6,padding:'6px 10px',marginBottom:10}}>
-              ✅ Saved mapping is active — OCR auto-detect ይሰረዛል
-              <button className="btn btn-sm btn-outline" style={{marginLeft:8,fontSize:10,padding:'2px 8px'}}
+            <div style={{fontSize:11,color:'#16a34a',background:'rgba(22,163,74,0.08)',borderRadius:6,padding:'6px 10px',marginBottom:10,display:'flex',alignItems:'center',gap:8}}>
+              ✅ Saved mapping active
+              <button className="btn btn-sm btn-outline" style={{fontSize:10,padding:'2px 8px'}}
                 onClick={()=>setSavedMapping(false)}>
                 Reset to auto
               </button>
