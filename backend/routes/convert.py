@@ -201,44 +201,63 @@ def crop_qr_from_card(card, margin=18):
 import pytesseract
 
 # ══════════════════════════════════════════════════════════════════
-# Gemini Vision OCR helpers
+# Gemini Vision OCR helpers (Optimized for Gemini 3 Flash)
 # ══════════════════════════════════════════════════════════════════
-def _get_ocr_mode():
-    cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.0-flash")
 
-def _detect_mime(image_bytes: bytes) -> str:
-    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
-    if image_bytes[:3] == b'\xff\xd8\xff':       return "image/jpeg"
-    if image_bytes[:4] == b'GIF8':                 return "image/gif"
-    if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP': return "image/webp"
-    return "image/jpeg"
+# Updated Prompts for Token Efficiency and Character Accuracy
+PROMPT_FRONT = """OCR: Ethiopian ID Front. 
+TASK: Extract text exactly as printed. No logic, no corrections.
+MANDATORY: 
+- Strict copy for Amharic (ሰ/ስ, ደ/ድ, ረ/ሬ). 
+- JSON only. No text outside JSON. 
 
+{
+  "full_name_amh": "",
+  "full_name_eng": "",
+  "date_of_birth_greg": "",
+  "date_of_birth_et": "",
+  "sex": "",
+  "date_of_expiry_greg": "",
+  "date_of_expiry_et": "",
+  "fan": ""
+}"""
 
-def _parse_gemini_json(raw: str) -> dict:
-    import json as _j, re as _r
-    text = raw.strip()
-    m = _r.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if m: text = m.group(1).strip()
-    s, e = text.find('{'), text.rfind('}')
-    if s != -1 and e != -1: text = text[s:e+1]
-    return _j.loads(text)
+PROMPT_BACK = """OCR: Ethiopian ID Back.
+RULES:
+1. Strict character-by-character copy. No corrections.
+2. Careful with similar Amharic: (ሰ/ስ, በ/ቤ, ለ/ሌ, ነ/ኔ, ተ/ቴ).
+3. Phone: 10 digits. FIN: 12 digits (no dashes).
+4. Woreda: separate text from number.
+5. Unclear = "".
 
-def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.0-flash") -> dict:
-    import requests as _req, base64 as _b64
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={gemini_key}"
-    )
-    is_v3 = model.startswith("gemini-3")
+Return ONLY valid JSON:
+{
+  "phone": "",
+  "fin": "",
+  "address_amh": "",
+  "address_eng": "",
+  "zone_amh": "",
+  "zone_eng": "",
+  "woreda_amh": "",
+  "woreda_num": "",
+  "woreda_eng": ""
+}"""
 
+def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-3-flash-preview") -> dict:
+    import requests as _req, base64 as _b64, time
+    
+    # Ensure we use exactly the preview model for Gemini 3
+    target_model = "gemini-3-flash-preview"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={gemini_key}"
+
+    # Strict OCR Configuration (Minimal Thinking via low Temperature/TopP)
+    # Removed "thinkingConfig" to fix the 400 INVALID_ARGUMENT error
     gen_config = {
-        "temperature": 0,    # deterministic output — no creativity
-        "topP": 0.1,         # only top 10% probability mass — strict OCR mode
-        "topK": 1,           # always pick highest-probability token
+        "temperature": 0,    # Forces deterministic, non-creative output
+        "topP": 0.1,         # Focuses only on highly probable characters
+        "topK": 1,           # Picks the single most likely token (pixel reading)
         "maxOutputTokens": 1024,
     }
-    
 
     body = {
         "contents": [{
@@ -249,10 +268,19 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         }],
         "generationConfig": gen_config
     }
-    resp = _req.post(url, json=body, timeout=40)
+
+    # Added basic retry logic (Exponential Backoff) for 429 errors
+    for attempt in range(3):
+        resp = _req.post(url, json=body, timeout=45)
+        if resp.status_code == 429:
+            time.sleep(2 ** attempt) # Wait 1s, then 2s, then 4s
+            continue
+        break
+
     if not resp.ok:
         print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
         resp.raise_for_status()
+        
     return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
 
 PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
