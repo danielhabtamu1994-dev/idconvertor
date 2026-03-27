@@ -201,13 +201,11 @@ def crop_qr_from_card(card, margin=18):
 import pytesseract
 
 # ══════════════════════════════════════════════════════════════════
-# Gemini Vision OCR helpers (Optimized for Gemini 3 Flash)
+# Gemini Vision OCR helpers
 # ══════════════════════════════════════════════════════════════════
-# ── የሚጎድሉ ረዳት ፈንክሽኖች ───────────────────────────────────────
-
 def _get_ocr_mode():
     cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-3-flash-preview")
+    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.0-flash")
 
 def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
@@ -216,83 +214,33 @@ def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP': return "image/webp"
     return "image/jpeg"
 
+
 def _parse_gemini_json(raw: str) -> dict:
     import json as _j, re as _r
     text = raw.strip()
-    
-    # የ'```json' እና '```' ምልክቶችን ለማጽዳት[span_3](start_span)[span_3](end_span)
-    # '[\s\S]*?' የሚለው በብሎኩ ውስጥ ያለውን ማንኛውንም ጽሁፍ (አዲስ መስመርንም ጨምሮ) ይይዛል
     m = _r.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if m:
-        text = m.group(1).strip()
-    
-    # አንዳንድ ጊዜ ከብሎኩ ውጭ ጽሁፍ ካለ ለመከላከል የመጀመሪያውን '{' እና የመጨረሻውን '}' መፈለግ[span_4](start_span)[span_4](end_span)
+    if m: text = m.group(1).strip()
     s, e = text.find('{'), text.rfind('}')
-    if s != -1 and e != -1:
-        text = text[s:e+1]
-        
-    try:
-        return _j.loads(text)
-    except _j.JSONDecodeError as err:
-        print(f"JSON parsing failed: {err}")
-        return {}
+    if s != -1 and e != -1: text = text[s:e+1]
+    return _j.loads(text)
 
+def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.0-flash") -> dict:
+    import requests as _req, base64 as _b64
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={gemini_key}"
+    )
+    is_v3 = model.startswith("gemini-3")
 
-
-# Updated Prompts for Token Efficiency and Character Accuracy
-PROMPT_FRONT = """OCR: Ethiopian ID Front. 
-TASK: Extract text exactly as printed. No logic, no corrections.
-MANDATORY: 
-- Strict copy for Amharic (ሰ/ስ, ደ/ድ, ረ/ሬ). 
-- JSON only. No text outside JSON. 
-
-{
-  "full_name_amh": "",
-  "full_name_eng": "",
-  "date_of_birth_greg": "",
-  "date_of_birth_et": "",
-  "sex": "",
-  "date_of_expiry_greg": "",
-  "date_of_expiry_et": "",
-  "fan": ""
-}"""
-
-PROMPT_BACK = """OCR: Ethiopian ID Back.
-RULES:
-1. Strict character-by-character copy. No corrections.
-2. Careful with similar Amharic: (ሰ/ስ, በ/ቤ, ለ/ሌ, ነ/ኔ, ተ/ቴ).
-3. Phone: 10 digits. FIN: 12 digits (no dashes).
-4. Woreda: separate text from number.
-5. Unclear = "".
-
-Return ONLY valid JSON:
-{
-  "phone": "",
-  "fin": "",
-  "address_amh": "",
-  "address_eng": "",
-  "zone_amh": "",
-  "zone_eng": "",
-  "woreda_amh": "",
-  "woreda_num": "",
-  "woreda_eng": ""
-}"""
-
-def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-3-flash-preview") -> dict:
-    import requests as _req, base64 as _b64, time
-    
-    # Ensure we use exactly the preview model for Gemini 3
-    target_model = "gemini-3-flash-preview"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={gemini_key}"
-
-    # Strict OCR Configuration (Minimal Thinking via low Temperature/TopP)
-    # Removed "thinkingConfig" to fix the 400 INVALID_ARGUMENT error
     gen_config = {
-        "temperature": 0,    # Forces deterministic, non-creative output
-        "topP": 0.1,         # Focuses only on highly probable characters
-        "topK": 1,           # Picks the single most likely token (pixel reading)
+        "temperature": 0,    # deterministic output — no creativity
+        "topP": 0.1,         # only top 10% probability mass — strict OCR mode
+        "topK": 1,           # always pick highest-probability token
         "maxOutputTokens": 1024,
     }
+    if is_v3:
+        # disable thinking entirely — prevents autocorrection of Amharic names
+        gen_config["thinkingConfig"] = {"thinkingMode": "disabled"}
 
     body = {
         "contents": [{
@@ -303,21 +251,54 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         }],
         "generationConfig": gen_config
     }
-
-    # Added basic retry logic (Exponential Backoff) for 429 errors
-    for attempt in range(3):
-        resp = _req.post(url, json=body, timeout=45)
-        if resp.status_code == 429:
-            time.sleep(2 ** attempt) # Wait 1s, then 2s, then 4s
-            continue
-        break
-
+    resp = _req.post(url, json=body, timeout=40)
     if not resp.ok:
         print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
         resp.raise_for_status()
-        
     return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
 
+PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
+OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
+
+STRICT RULES:
+- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
+- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
+  Read the exact vowel mark on every character. These pairs are most often confused:
+    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
+    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
+    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
+    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
+    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
+    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
+    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
+- DO NOT apply Amharic grammar or spelling knowledge. Treat it as pixel data only.
+- If a field is not visible or unclear, use empty string "".
+- Numbers: digits only, no spaces, no dashes.
+
+Return this JSON and nothing else:
+{"full_name_amh":"","full_name_eng":"","date_of_birth_greg":"","date_of_birth_et":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
+
+PROMPT_BACK = """TASK: OCR extraction from an Ethiopian Digital ID card (back side).
+OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
+
+STRICT RULES:
+- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
+- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
+  Read the exact vowel mark on every character. These pairs are most often confused:
+    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
+    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
+    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
+    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
+    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
+    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
+    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
+- DO NOT apply Amharic grammar or address normalization. Copy pixel data only.
+- Woreda field: SPLIT text and number. e.g. card shows "ወረዳ 05" → woreda_amh="ወረዳ", woreda_num="05"
+- phone: 10 digits only. fin: 12 digits only, no dashes.
+- If a field is not visible or unclear, use empty string "".
+
+Return this JSON and nothing else:
+{"phone":"","fin":"","address_amh":"","address_eng":"","zone_amh":"","zone_eng":"","woreda_amh":"","woreda_num":"","woreda_eng":""}"""
 
 
 def _gemini_front_to_lines(g: dict):
