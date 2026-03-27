@@ -205,7 +205,7 @@ import pytesseract
 # ══════════════════════════════════════════════════════════════════
 def _get_ocr_mode():
     cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-1.5-pro")
+    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.5-flash")
 
 def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
@@ -223,7 +223,7 @@ def _parse_gemini_json(raw: str) -> dict:
     if s != -1 and e != -1: text = text[s:e+1]
     return _j.loads(text)
 
-def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-1.5-pro") -> dict:
+def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.5-flash") -> dict:
     import requests as _req, base64 as _b64
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -236,7 +236,7 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
                 {"text": prompt}
             ]
         }],
-        "generationConfig": {"temperature": 0, "maxOutputTokens": 1024}
+        "generationConfig": {"temperature": 0, "topP": 1, "topK": 1, "maxOutputTokens": 1024}
     }
     resp = _req.post(url, json=body, timeout=40)
     if not resp.ok:
@@ -244,34 +244,61 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         resp.raise_for_status()
     return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
 
-PROMPT_FRONT = """You are reading an Ethiopian Digital ID card (front side).
-Extract ONLY these fields and return valid JSON, nothing else:
-{
-  "full_name_amh": "Amharic full name (line with Ethiopic script)",
-  "full_name_eng": "English full name",
-  "date_of_birth_greg": "Gregorian date e.g. 23/10/1996",
-  "date_of_birth_et": "Ethiopian date e.g. 2004/Jun/30",
-  "sex": "Male or Female",
-  "date_of_expiry_greg": "Gregorian expiry e.g. 2025/01/08",
-  "date_of_expiry_et": "Ethiopian expiry e.g. 2032/Sep/18",
-  "fan": "16-digit FAN number digits only no spaces"
-}
-If a field is not visible write empty string."""
+PROMPT_FRONT = """You are an expert OCR system for Ethiopian Digital ID cards (front side).
 
-PROMPT_BACK = """You are reading an Ethiopian Digital ID card (back side).
-Extract ONLY these fields and return valid JSON, nothing else:
+CRITICAL RULES — read carefully before extracting:
+1. Copy ALL text CHARACTER-BY-CHARACTER exactly as printed. Never autocorrect, never guess.
+2. Amharic characters are visually similar but linguistically distinct. Examples of easily confused pairs:
+   ሰ vs ስ vs ሱ vs ሲ vs ሳ vs ሴ vs ሶ
+   በ vs ቤ vs ቡ vs ቢ vs ባ vs ቦ
+   ለ vs ሌ vs ሉ vs ሊ vs ላ vs ሎ
+   ነ vs ኔ vs ኑ vs ኒ vs ና vs ኖ
+   ተ vs ቴ vs ቱ vs ቲ vs ታ vs ቶ
+   COPY what you SEE — not what sounds correct in Amharic.
+3. Do NOT normalize or transliterate names. Write exactly as shown on the card.
+4. For numbers: digits only, no spaces, no dashes.
+5. If a field is unclear or not visible, return empty string "". Never fabricate.
+
+Extract ONLY these fields and return valid JSON with no extra text, no markdown, no explanation:
 {
-  "phone": "phone number 10 digits",
-  "fin": "12-digit FIN number digits only",
-  "address_amh": "address in Amharic",
-  "address_eng": "address in English",
-  "zone_amh": "zone/subcity in Amharic",
-  "zone_eng": "zone/subcity in English",
-  "woreda_amh": "woreda name in Amharic (text only, no number)",
-  "woreda_num": "woreda number only digits",
-  "woreda_eng": "woreda in English"
-}
-If a field is not visible write empty string."""
+  "full_name_amh": "Amharic full name — copy exactly from the Ethiopic script line",
+  "full_name_eng": "English full name — copy exactly as printed",
+  "date_of_birth_greg": "Gregorian birth date exactly as shown e.g. 23/10/1996",
+  "date_of_birth_et": "Ethiopian birth date exactly as shown e.g. 13/ጥቅምት/1987",
+  "sex": "exactly as shown e.g. Male or Female or ወንድ or ሴት",
+  "date_of_expiry_greg": "Gregorian expiry exactly as shown",
+  "date_of_expiry_et": "Ethiopian expiry exactly as shown",
+  "fan": "16-digit FAN number, digits only no spaces"
+}"""
+
+PROMPT_BACK = """You are an expert OCR system for Ethiopian Digital ID cards (back side).
+
+CRITICAL RULES — read carefully before extracting:
+1. Copy ALL text CHARACTER-BY-CHARACTER exactly as printed. Never autocorrect, never guess.
+2. Amharic characters are visually similar but linguistically distinct. Examples of easily confused pairs:
+   ሰ vs ስ vs ሱ vs ሲ vs ሳ vs ሴ vs ሶ
+   በ vs ቤ vs ቡ vs ቢ vs ባ vs ቦ
+   ለ vs ሌ vs ሉ vs ሊ vs ላ vs ሎ
+   ነ vs ኔ vs ኑ vs ኒ vs ና vs ኖ
+   ተ vs ቴ vs ቱ vs ቲ vs ታ vs ቶ
+   COPY what you SEE — not what sounds correct in Amharic.
+3. Do NOT normalize addresses or names. Write exactly as shown on the card.
+4. For phone: 10 digits only (e.g. 0912345678). For FIN: 12 digits only, no dashes.
+5. For woreda: separate the text name from the number — e.g. woreda_amh="ቦሌ", woreda_num="07".
+6. If a field is unclear or not visible, return empty string "". Never fabricate.
+
+Extract ONLY these fields and return valid JSON with no extra text, no markdown, no explanation:
+{
+  "phone": "10-digit phone number, digits only",
+  "fin": "12-digit FIN number, digits only no dashes",
+  "address_amh": "full address in Amharic — copy exactly",
+  "address_eng": "full address in English — copy exactly",
+  "zone_amh": "zone or subcity in Amharic — copy exactly",
+  "zone_eng": "zone or subcity in English — copy exactly",
+  "woreda_amh": "woreda name in Amharic text only (no number) — copy exactly",
+  "woreda_num": "woreda number digits only",
+  "woreda_eng": "woreda in English — copy exactly"
+}"""
 
 
 def _gemini_front_to_lines(g: dict):
