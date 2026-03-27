@@ -205,7 +205,7 @@ import pytesseract
 # ══════════════════════════════════════════════════════════════════
 def _get_ocr_mode():
     cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.5-flash")
+    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.0-flash")
 
 def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
@@ -223,12 +223,22 @@ def _parse_gemini_json(raw: str) -> dict:
     if s != -1 and e != -1: text = text[s:e+1]
     return _j.loads(text)
 
-def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.5-flash") -> dict:
+def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.0-flash") -> dict:
     import requests as _req, base64 as _b64
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
+    is_v3 = model.startswith("gemini-3")
+    gen_config = {
+        "temperature": 0,
+        "topP": 1,
+        "topK": 1,
+        "maxOutputTokens": 1024,
+    }
+    if is_v3:
+        gen_config["thinkingConfig"] = {"thinkingMode": "minimal"}
+
     body = {
         "contents": [{
             "parts": [
@@ -236,7 +246,7 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
                 {"text": prompt}
             ]
         }],
-        "generationConfig": {"temperature": 0, "topP": 1, "topK": 1, "maxOutputTokens": 1024}
+        "generationConfig": gen_config
     }
     resp = _req.post(url, json=body, timeout=40)
     if not resp.ok:
@@ -248,13 +258,15 @@ PROMPT_FRONT = """You are an expert OCR system for Ethiopian Digital ID cards (f
 
 CRITICAL RULES — read carefully before extracting:
 1. Copy ALL text CHARACTER-BY-CHARACTER exactly as printed. Never autocorrect, never guess.
-2. Amharic characters are visually similar but linguistically distinct. Examples of easily confused pairs:
-   ሰ vs ስ vs ሱ vs ሲ vs ሳ vs ሴ vs ሶ
+2. Amharic characters are visually similar but linguistically distinct. NEVER swap these:
+   ሰ vs ስ vs ሱ vs ሲ vs ሳ vs ሴ vs ሶ   ← most common mistake
+   ደ vs ድ  |  ረ vs ሬ  |  ቀ vs ቁ vs ቃ
    በ vs ቤ vs ቡ vs ቢ vs ባ vs ቦ
    ለ vs ሌ vs ሉ vs ሊ vs ላ vs ሎ
    ነ vs ኔ vs ኑ vs ኒ vs ና vs ኖ
    ተ vs ቴ vs ቱ vs ቲ vs ታ vs ቶ
-   COPY what you SEE — not what sounds correct in Amharic.
+   The characters ሰ/ስ, ደ/ድ, ረ/ሬ are the most commonly misread — treat every occurrence with extreme care.
+   COPY what you SEE pixel-by-pixel — never "correct" what looks like a spelling error.
 3. Do NOT normalize or transliterate names. Write exactly as shown on the card.
 4. For numbers: digits only, no spaces, no dashes.
 5. If a field is unclear or not visible, return empty string "". Never fabricate.
