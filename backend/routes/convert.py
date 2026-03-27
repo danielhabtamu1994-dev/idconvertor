@@ -238,9 +238,7 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         "topK": 1,           # always pick highest-probability token
         "maxOutputTokens": 1024,
     }
-    if is_v3:
-        # disable thinking entirely — prevents autocorrection of Amharic names
-        gen_config["thinkingConfig"] = {"thinkingMode": "disabled"}
+    
 
     body = {
         "contents": [{
