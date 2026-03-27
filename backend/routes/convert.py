@@ -205,7 +205,7 @@ import pytesseract
 # ══════════════════════════════════════════════════════════════════
 def _get_ocr_mode():
     cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.5-flash")
+    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-1.5-pro")
 
 def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
@@ -223,10 +223,10 @@ def _parse_gemini_json(raw: str) -> dict:
     if s != -1 and e != -1: text = text[s:e+1]
     return _j.loads(text)
 
-def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.5-flash") -> dict:
+def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-1.5-pro") -> dict:
     import requests as _req, base64 as _b64
     url = (
-        "https://generativelanguage.googleapis.com/v1/models/"
+        "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
     body = {
