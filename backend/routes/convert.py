@@ -219,11 +219,24 @@ def _detect_mime(image_bytes: bytes) -> str:
 def _parse_gemini_json(raw: str) -> dict:
     import json as _j, re as _r
     text = raw.strip()
+    
+    # 1. ከማርክ ዳውን (```json ... ```) ውስጥ ለማውጣት ይሞክራል
     m = _r.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if m: text = m.group(1).strip()
+    if m: 
+        text = m.group(1).strip()
+    
+    # 2. የ JSON ብሬኬቶችን { } ብቻ ፈልጎ ያወጣል
     s, e = text.find('{'), text.rfind('}')
-    if s != -1 and e != -1: text = text[s:e+1]
-    return _j.loads(text)
+    if s != -1 and e != -1: 
+        text = text[s:e+1]
+    
+    try:
+        return _j.loads(text)
+    except _j.JSONDecodeError:
+        # 3. JSON ከሌለ ወይም ባዶ ከሆነ ወደ ባዶ ዳታ ይቀይረዋል (Error እንዳይሰጥ)
+        print(f"DEBUG: Failed to parse JSON. Raw text was: {raw}")
+        return {}
+
 
 # Updated Prompts for Token Efficiency and Character Accuracy
 PROMPT_FRONT = """OCR: Ethiopian ID Front. 
