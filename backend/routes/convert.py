@@ -226,7 +226,7 @@ def _parse_gemini_json(raw: str) -> dict:
 def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.5-flash") -> dict:
     import requests as _req, base64 as _b64
     url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
+        "https://generativelanguage.googleapis.com/v1/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
     body = {
