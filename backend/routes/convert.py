@@ -203,40 +203,6 @@ import pytesseract
 # ══════════════════════════════════════════════════════════════════
 # Gemini Vision OCR helpers (Optimized for Gemini 3 Flash)
 # ══════════════════════════════════════════════════════════════════
-# ── የሚጎድሉ ረዳት ፈንክሽኖች ───────────────────────────────────────
-
-def _get_ocr_mode():
-    cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-3-flash-preview")
-
-def _detect_mime(image_bytes: bytes) -> str:
-    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
-    if image_bytes[:3] == b'\xff\xd8\xff':       return "image/jpeg"
-    if image_bytes[:4] == b'GIF8':                 return "image/gif"
-    if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP': return "image/webp"
-    return "image/jpeg"
-
-def _parse_gemini_json(raw: str) -> dict:
-    import json as _j, re as _r
-    text = raw.strip()
-    
-    # 1. ከማርክ ዳውን (```json ... ```) ውስጥ ለማውጣት ይሞክራል
-    m = _r.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if m: 
-        text = m.group(1).strip()
-    
-    # 2. የ JSON ብሬኬቶችን { } ብቻ ፈልጎ ያወጣል
-    s, e = text.find('{'), text.rfind('}')
-    if s != -1 and e != -1: 
-        text = text[s:e+1]
-    
-    try:
-        return _j.loads(text)
-    except _j.JSONDecodeError:
-        # 3. JSON ከሌለ ወይም ባዶ ከሆነ ወደ ባዶ ዳታ ይቀይረዋል (Error እንዳይሰጥ)
-        print(f"DEBUG: Failed to parse JSON. Raw text was: {raw}")
-        return {}
-
 
 # Updated Prompts for Token Efficiency and Character Accuracy
 PROMPT_FRONT = """OCR: Ethiopian ID Front. 
@@ -317,48 +283,6 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         
     return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
 
-PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
-OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
-
-STRICT RULES:
-- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
-- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
-  Read the exact vowel mark on every character. These pairs are most often confused:
-    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
-    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
-    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
-    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
-    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
-    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
-    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
-- DO NOT apply Amharic grammar or spelling knowledge. Treat it as pixel data only.
-- If a field is not visible or unclear, use empty string "".
-- Numbers: digits only, no spaces, no dashes.
-
-Return this JSON and nothing else:
-{"full_name_amh":"","full_name_eng":"","date_of_birth_greg":"","date_of_birth_et":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
-
-PROMPT_BACK = """TASK: OCR extraction from an Ethiopian Digital ID card (back side).
-OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
-
-STRICT RULES:
-- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
-- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
-  Read the exact vowel mark on every character. These pairs are most often confused:
-    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
-    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
-    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
-    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
-    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
-    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
-    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
-- DO NOT apply Amharic grammar or address normalization. Copy pixel data only.
-- Woreda field: SPLIT text and number. e.g. card shows "ወረዳ 05" → woreda_amh="ወረዳ", woreda_num="05"
-- phone: 10 digits only. fin: 12 digits only, no dashes.
-- If a field is not visible or unclear, use empty string "".
-
-Return this JSON and nothing else:
-{"phone":"","fin":"","address_amh":"","address_eng":"","zone_amh":"","zone_eng":"","woreda_amh":"","woreda_num":"","woreda_eng":""}"""
 
 
 def _gemini_front_to_lines(g: dict):
