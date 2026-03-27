@@ -203,6 +203,27 @@ import pytesseract
 # ══════════════════════════════════════════════════════════════════
 # Gemini Vision OCR helpers (Optimized for Gemini 3 Flash)
 # ══════════════════════════════════════════════════════════════════
+# ── የሚጎድሉ ረዳት ፈንክሽኖች ───────────────────────────────────────
+
+def _get_ocr_mode():
+    cfg = firebase_get("api_settings") or {}
+    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-3-flash-preview")
+
+def _detect_mime(image_bytes: bytes) -> str:
+    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
+    if image_bytes[:3] == b'\xff\xd8\xff':       return "image/jpeg"
+    if image_bytes[:4] == b'GIF8':                 return "image/gif"
+    if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP': return "image/webp"
+    return "image/jpeg"
+
+def _parse_gemini_json(raw: str) -> dict:
+    import json as _j, re as _r
+    text = raw.strip()
+    m = _r.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+    if m: text = m.group(1).strip()
+    s, e = text.find('{'), text.rfind('}')
+    if s != -1 and e != -1: text = text[s:e+1]
+    return _j.loads(text)
 
 # Updated Prompts for Token Efficiency and Character Accuracy
 PROMPT_FRONT = """OCR: Ethiopian ID Front. 
