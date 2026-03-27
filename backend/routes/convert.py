@@ -219,23 +219,24 @@ def _detect_mime(image_bytes: bytes) -> str:
 def _parse_gemini_json(raw: str) -> dict:
     import json as _j, re as _r
     text = raw.strip()
-    # የማርክዳውን ብሎኮችን (```) ለማጽዳት
+    
+    # የ'```json' እና '```' ምልክቶችን ለማጽዳት[span_3](start_span)[span_3](end_span)
+    # '[\s\S]*?' የሚለው በብሎኩ ውስጥ ያለውን ማንኛውንም ጽሁፍ (አዲስ መስመርንም ጨምሮ) ይይዛል
     m = _r.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if m: 
+    if m:
         text = m.group(1).strip()
     
-    # የመጀመሪያውን '{' እና የመጨረሻውን '}' በመፈለግ በውስጣቸው ያለውን ብቻ መውሰድ
-    s = text.find('{')
-    e = text.rfind('}')
+    # አንዳንድ ጊዜ ከብሎኩ ውጭ ጽሁፍ ካለ ለመከላከል የመጀመሪያውን '{' እና የመጨረሻውን '}' መፈለግ[span_4](start_span)[span_4](end_span)
+    s, e = text.find('{'), text.rfind('}')
     if s != -1 and e != -1:
         text = text[s:e+1]
-    
+        
     try:
         return _j.loads(text)
-    except _j.JSONDecodeError:
-        # ለዲባጊንግ (Debugging) ሲባል የተሳሳተውን ጽሁፍ ፕሪንት ማድረግ
-        print(f"FAILED TO PARSE JSON. RAW TEXT: {raw}")
+    except _j.JSONDecodeError as err:
+        print(f"JSON parsing failed: {err}")
         return {}
+
 
 
 # Updated Prompts for Token Efficiency and Character Accuracy
