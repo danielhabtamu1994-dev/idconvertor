@@ -214,18 +214,6 @@ def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP': return "image/webp"
     return "image/jpeg"
 
-def _compress_image(image_bytes: bytes, max_dim: int = 1280, quality: int = 82) -> bytes:
-    """Resize + compress image before sending to Gemini to reduce token cost."""
-    from PIL import Image as _PIL_Image
-    import io as _io
-    img = _PIL_Image.open(_io.BytesIO(image_bytes)).convert("RGB")
-    w, h = img.size
-    if max(w, h) > max_dim:
-        scale = max_dim / max(w, h)
-        img = img.resize((int(w * scale), int(h * scale)), _PIL_Image.LANCZOS)
-    buf = _io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality, optimize=True)
-    return buf.getvalue()
 
 def _parse_gemini_json(raw: str) -> dict:
     import json as _j, re as _r
@@ -244,9 +232,6 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
     )
     is_v3 = model.startswith("gemini-3")
 
-    # Compress image before sending — reduces token cost significantly
-    compressed = _compress_image(image_bytes)
-
     gen_config = {
         "temperature": 0,    # deterministic output — no creativity
         "topP": 0.1,         # only top 10% probability mass — strict OCR mode
@@ -260,7 +245,7 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
     body = {
         "contents": [{
             "parts": [
-                {"inline_data": {"mime_type": "image/jpeg", "data": _b64.b64encode(compressed).decode()}},
+                {"inline_data": {"mime_type": _detect_mime(image_bytes), "data": _b64.b64encode(image_bytes).decode()}},
                 {"text": prompt}
             ]
         }],
