@@ -165,7 +165,7 @@ export default function Settings() {
   const [fieldMapBack,  setFieldMapBack]  = useState({});
   const [ocrMode,  setOcrMode]  = useState('normal');
   const [geminiKey,  setGeminiKey]  = useState('');
-  const [geminiModel,setGeminiModel]= useState('gemini-2.5-flash');
+  const [geminiModel,setGeminiModel]= useState('gemini-2.0-flash');
   const fgRef = useRef(); const bgRef = useRef();
 
   useEffect(()=>{
@@ -295,15 +295,26 @@ export default function Settings() {
                 Google AI Studio → <strong>makersuite.google.com</strong> → Get API Key
               </p>
             </div>
-            <div className="form-group" style={{marginTop:12}}>
-              <label>🤖 Gemini Model</label>
-              <input className="form-input"
-                placeholder="gemini-2.5-flash"
-                value={geminiModel}
-                onChange={e=>setGeminiModel(e.target.value)}/>
-              <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
-                ምሳሌ: gemini-2.5-flash · gemini-2.0-flash · gemini-1.5-flash
-              </p>
+            <div style={{marginTop:12}}>
+              <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:8}}>🤖 Gemini Model</label>
+              <div style={{display:'flex',gap:8}}>
+                {[
+                  {id:'gemini-3-flash-preview', label:'3 Flash', badge:'🆕 ምርጥ', color:'#7c3aed'},
+                  {id:'gemini-2.0-flash',       label:'2.0 Flash', badge:'✅ Stable', color:'#0f766e'},
+                ].map(m=>(
+                  <button key={m.id}
+                    onClick={()=>setGeminiModel(m.id)}
+                    style={{
+                      flex:1, padding:'10px 8px', border:`2px solid ${geminiModel===m.id?m.color:'var(--border)'}`,
+                      borderRadius:8, background: geminiModel===m.id?`${m.color}18`:'var(--bg)',
+                      cursor:'pointer', textAlign:'center', transition:'all .15s'
+                    }}>
+                    <div style={{fontWeight:700,fontSize:13,color:geminiModel===m.id?m.color:'var(--text)'}}>{m.label}</div>
+                    <div style={{fontSize:10,color:geminiModel===m.id?m.color:'var(--text-muted)',marginTop:2}}>{m.badge}</div>
+                    <div style={{fontSize:9,color:'var(--text-muted)',marginTop:3,wordBreak:'break-all'}}>{m.id}</div>
+                  </button>
+                ))}
+              </div>
             </div>
             </>
           )}
