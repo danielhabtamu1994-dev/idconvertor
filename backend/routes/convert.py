@@ -214,6 +214,19 @@ def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP': return "image/webp"
     return "image/jpeg"
 
+def _compress_image(image_bytes: bytes, max_dim: int = 1280, quality: int = 82) -> bytes:
+    """Resize + compress image before sending to Gemini to reduce token cost."""
+    from PIL import Image as _PIL_Image
+    import io as _io
+    img = _PIL_Image.open(_io.BytesIO(image_bytes)).convert("RGB")
+    w, h = img.size
+    if max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), _PIL_Image.LANCZOS)
+    buf = _io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality, optimize=True)
+    return buf.getvalue()
+
 def _parse_gemini_json(raw: str) -> dict:
     import json as _j, re as _r
     text = raw.strip()
@@ -230,19 +243,24 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         f"{model}:generateContent?key={gemini_key}"
     )
     is_v3 = model.startswith("gemini-3")
+
+    # Compress image before sending — reduces token cost significantly
+    compressed = _compress_image(image_bytes)
+
     gen_config = {
-        "temperature": 0,
-        "topP": 1,
-        "topK": 1,
+        "temperature": 0,    # deterministic output — no creativity
+        "topP": 0.1,         # only top 10% probability mass — strict OCR mode
+        "topK": 1,           # always pick highest-probability token
         "maxOutputTokens": 1024,
     }
     if is_v3:
-        gen_config["thinkingConfig"] = {"thinkingMode": "minimal"}
+        # disable thinking entirely — prevents autocorrection of Amharic names
+        gen_config["thinkingConfig"] = {"thinkingMode": "disabled"}
 
     body = {
         "contents": [{
             "parts": [
-                {"inline_data": {"mime_type": _detect_mime(image_bytes), "data": _b64.b64encode(image_bytes).decode()}},
+                {"inline_data": {"mime_type": "image/jpeg", "data": _b64.b64encode(compressed).decode()}},
                 {"text": prompt}
             ]
         }],
@@ -254,63 +272,48 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         resp.raise_for_status()
     return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
 
-PROMPT_FRONT = """You are an expert OCR system for Ethiopian Digital ID cards (front side).
+PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
+OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
 
-CRITICAL RULES — read carefully before extracting:
-1. Copy ALL text CHARACTER-BY-CHARACTER exactly as printed. Never autocorrect, never guess.
-2. Amharic characters are visually similar but linguistically distinct. NEVER swap these:
-   ሰ vs ስ vs ሱ vs ሲ vs ሳ vs ሴ vs ሶ   ← most common mistake
-   ደ vs ድ  |  ረ vs ሬ  |  ቀ vs ቁ vs ቃ
-   በ vs ቤ vs ቡ vs ቢ vs ባ vs ቦ
-   ለ vs ሌ vs ሉ vs ሊ vs ላ vs ሎ
-   ነ vs ኔ vs ኑ vs ኒ vs ና vs ኖ
-   ተ vs ቴ vs ቱ vs ቲ vs ታ vs ቶ
-   The characters ሰ/ስ, ደ/ድ, ረ/ሬ are the most commonly misread — treat every occurrence with extreme care.
-   COPY what you SEE pixel-by-pixel — never "correct" what looks like a spelling error.
-3. Do NOT normalize or transliterate names. Write exactly as shown on the card.
-4. For numbers: digits only, no spaces, no dashes.
-5. If a field is unclear or not visible, return empty string "". Never fabricate.
+STRICT RULES:
+- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
+- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
+  Read the exact vowel mark on every character. These pairs are most often confused:
+    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
+    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
+    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
+    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
+    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
+    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
+    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
+- DO NOT apply Amharic grammar or spelling knowledge. Treat it as pixel data only.
+- If a field is not visible or unclear, use empty string "".
+- Numbers: digits only, no spaces, no dashes.
 
-Extract ONLY these fields and return valid JSON with no extra text, no markdown, no explanation:
-{
-  "full_name_amh": "Amharic full name — copy exactly from the Ethiopic script line",
-  "full_name_eng": "English full name — copy exactly as printed",
-  "date_of_birth_greg": "Gregorian birth date exactly as shown e.g. 23/10/1996",
-  "date_of_birth_et": "Ethiopian birth date exactly as shown e.g. 13/ጥቅምት/1987",
-  "sex": "exactly as shown e.g. Male or Female or ወንድ or ሴት",
-  "date_of_expiry_greg": "Gregorian expiry exactly as shown",
-  "date_of_expiry_et": "Ethiopian expiry exactly as shown",
-  "fan": "16-digit FAN number, digits only no spaces"
-}"""
+Return this JSON and nothing else:
+{"full_name_amh":"","full_name_eng":"","date_of_birth_greg":"","date_of_birth_et":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
 
-PROMPT_BACK = """You are an expert OCR system for Ethiopian Digital ID cards (back side).
+PROMPT_BACK = """TASK: OCR extraction from an Ethiopian Digital ID card (back side).
+OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
 
-CRITICAL RULES — read carefully before extracting:
-1. Copy ALL text CHARACTER-BY-CHARACTER exactly as printed. Never autocorrect, never guess.
-2. Amharic characters are visually similar but linguistically distinct. Examples of easily confused pairs:
-   ሰ vs ስ vs ሱ vs ሲ vs ሳ vs ሴ vs ሶ
-   በ vs ቤ vs ቡ vs ቢ vs ባ vs ቦ
-   ለ vs ሌ vs ሉ vs ሊ vs ላ vs ሎ
-   ነ vs ኔ vs ኑ vs ኒ vs ና vs ኖ
-   ተ vs ቴ vs ቱ vs ቲ vs ታ vs ቶ
-   COPY what you SEE — not what sounds correct in Amharic.
-3. Do NOT normalize addresses or names. Write exactly as shown on the card.
-4. For phone: 10 digits only (e.g. 0912345678). For FIN: 12 digits only, no dashes.
-5. For woreda: separate the text name from the number — e.g. woreda_amh="ቦሌ", woreda_num="07".
-6. If a field is unclear or not visible, return empty string "". Never fabricate.
+STRICT RULES:
+- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
+- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
+  Read the exact vowel mark on every character. These pairs are most often confused:
+    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
+    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
+    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
+    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
+    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
+    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
+    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
+- DO NOT apply Amharic grammar or address normalization. Copy pixel data only.
+- Woreda field: SPLIT text and number. e.g. card shows "ወረዳ 05" → woreda_amh="ወረዳ", woreda_num="05"
+- phone: 10 digits only. fin: 12 digits only, no dashes.
+- If a field is not visible or unclear, use empty string "".
 
-Extract ONLY these fields and return valid JSON with no extra text, no markdown, no explanation:
-{
-  "phone": "10-digit phone number, digits only",
-  "fin": "12-digit FIN number, digits only no dashes",
-  "address_amh": "full address in Amharic — copy exactly",
-  "address_eng": "full address in English — copy exactly",
-  "zone_amh": "zone or subcity in Amharic — copy exactly",
-  "zone_eng": "zone or subcity in English — copy exactly",
-  "woreda_amh": "woreda name in Amharic text only (no number) — copy exactly",
-  "woreda_num": "woreda number digits only",
-  "woreda_eng": "woreda in English — copy exactly"
-}"""
+Return this JSON and nothing else:
+{"phone":"","fin":"","address_amh":"","address_eng":"","zone_amh":"","zone_eng":"","woreda_amh":"","woreda_num":"","woreda_eng":""}"""
 
 
 def _gemini_front_to_lines(g: dict):
