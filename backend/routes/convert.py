@@ -230,7 +230,7 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
-    is_v3 = model.startswith("gemini-3") or model.startswith("gemini-2.5")
+    is_v3 = model.startswith("gemini-2.5")
 
     gen_config = {
         "temperature": 0,    # deterministic output — no creativity
