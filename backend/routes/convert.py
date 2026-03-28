@@ -230,17 +230,13 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
-    is_v3 = model.startswith("gemini-3")
 
     gen_config = {
-        "temperature": 0,    # deterministic output — no creativity
-        "topP": 0.1,         # only top 10% probability mass — strict OCR mode
-        "topK": 1,           # always pick highest-probability token
+        "temperature": 0,
+        "topP": 0.1,
+        "topK": 1,
         "maxOutputTokens": 1024,
     }
-    if is_v3:
-        # disable thinking entirely — prevents autocorrection of Amharic names
-        gen_config["thinkingConfig"] = {"thinkingMode": "disabled"}
 
     body = {
         "contents": [{
@@ -249,13 +245,36 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
                 {"text": prompt}
             ]
         }],
-        "generationConfig": gen_config
+        "generationConfig": gen_config,
     }
-    resp = _req.post(url, json=body, timeout=40)
+
+    # thinkingConfig MUST be top-level in the request body, NOT inside generationConfig
+    is_thinking_model = model.startswith("gemini-3") or model.startswith("gemini-2.5")
+    if is_thinking_model:
+        body["generationConfig"].pop("topK", None)  # topK not supported with thinking models
+        body["generationConfig"]["temperature"] = 0.0
+        body["thinkingConfig"] = {"thinkingBudget": 0}
+
+    resp = _req.post(url, json=body, timeout=60)
     if not resp.ok:
         print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
         resp.raise_for_status()
-    return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+
+    result = resp.json()
+    try:
+        text = result["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError):
+        # Some models return thinking parts first, find the text part
+        parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        text = ""
+        for part in parts:
+            if "text" in part:
+                text = part["text"]
+        if not text:
+            print("GEMINI UNEXPECTED RESPONSE:", str(result)[:500])
+            raise ValueError("No text in Gemini response")
+
+    return _parse_gemini_json(text)
 
 PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
 OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
