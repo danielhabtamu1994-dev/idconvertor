@@ -248,12 +248,12 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         "generationConfig": gen_config,
     }
 
-    # thinkingConfig MUST be top-level in the request body, NOT inside generationConfig
-    is_thinking_model = model.startswith("gemini-3") or model.startswith("gemini-2.5")
-    if is_thinking_model:
-        body["generationConfig"].pop("topK", None)  # topK not supported with thinking models
+    # gemini-3 and gemini-2.5 models don't support topK and thinkingConfig causes errors
+    # Simply remove topK for these models and do NOT add thinkingConfig
+    is_newer_model = model.startswith("gemini-3") or model.startswith("gemini-2.5")
+    if is_newer_model:
+        body["generationConfig"].pop("topK", None)
         body["generationConfig"]["temperature"] = 0.0
-        body["thinkingConfig"] = {"thinkingBudget": 0}
 
     resp = _req.post(url, json=body, timeout=60)
     if not resp.ok:
