@@ -205,7 +205,7 @@ import pytesseract
 # ══════════════════════════════════════════════════════════════════
 def _get_ocr_mode():
     cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.0-flash")
+    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.5-flash")
 
 def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
@@ -224,13 +224,13 @@ def _parse_gemini_json(raw: str) -> dict:
     if s != -1 and e != -1: text = text[s:e+1]
     return _j.loads(text)
 
-def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.0-flash") -> dict:
+def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.5-flash") -> dict:
     import requests as _req, base64 as _b64
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
-    is_v3 = model.startswith("gemini-3")
+    is_v3 = model.startswith("gemini-3") or model.startswith("gemini-2.5")
 
     gen_config = {
         "temperature": 0,    # deterministic output — no creativity
@@ -257,42 +257,48 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         resp.raise_for_status()
     return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
 
-PROMPT_FRONT = """OCR: Ethiopian ID Front. 
-TASK: Extract text exactly as printed. No logic, no corrections.
-MANDATORY: 
-- Strict copy for Amharic (ሰ/ስ, ደ/ድ, ረ/ሬ). 
-- JSON only. No text outside JSON. 
-{
-  "full_name_amh": "",
-  "full_name_eng": "",
-  "date_of_birth_greg": "",
-  "date_of_birth_et": "",
-  "sex": "",
-  "date_of_expiry_greg": "",
-  "date_of_expiry_et": "",
-  "fan": ""
-}"""
+PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
+OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
 
-PROMPT_BACK = """OCR: Ethiopian ID Back.
-RULES:
-1. Strict character-by-character copy. No corrections.
-2. Careful with similar Amharic: (ሰ/ስ, በ/ቤ, ለ/ሌ, ነ/ኔ, ተ/ቴ). Copy pixels.
-3. No address normalization. Keep original script.
-4. Phone: 10 digits. FIN: 12 digits (no dashes).
-5. Woreda: separate text from number.
-6. Unclear = "".
-Return ONLY valid JSON:
-{
-  "phone": "10-digit number",
-  "fin": "12-digit number",
-  "address_amh": "Exact Amharic address",
-  "address_eng": "Exact English address",
-  "zone_amh": "Amharic zone",
-  "zone_eng": "English zone",
-  "woreda_amh": "Woreda name only (Amharic)",
-  "woreda_num": "Woreda number only",
-  "woreda_eng": "English woreda"
-}"""
+STRICT RULES:
+- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
+- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
+  Read the exact vowel mark on every character. These pairs are most often confused:
+    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
+    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
+    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
+    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
+    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
+    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
+    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
+- DO NOT apply Amharic grammar or spelling knowledge. Treat it as pixel data only.
+- If a field is not visible or unclear, use empty string "".
+- Numbers: digits only, no spaces, no dashes.
+
+Return this JSON and nothing else:
+{"full_name_amh":"","full_name_eng":"","date_of_birth_greg":"","date_of_birth_et":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
+
+PROMPT_BACK = """TASK: OCR extraction from an Ethiopian Digital ID card (back side).
+OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
+
+STRICT RULES:
+- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
+- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
+  Read the exact vowel mark on every character. These pairs are most often confused:
+    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
+    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
+    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
+    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
+    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
+    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
+    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
+- DO NOT apply Amharic grammar or address normalization. Copy pixel data only.
+- Woreda field: SPLIT text and number. e.g. card shows "ወረዳ 05" → woreda_amh="ወረዳ", woreda_num="05"
+- phone: 10 digits only. fin: 12 digits only, no dashes.
+- If a field is not visible or unclear, use empty string "".
+
+Return this JSON and nothing else:
+{"phone":"","fin":"","address_amh":"","address_eng":"","zone_amh":"","zone_eng":"","woreda_amh":"","woreda_num":"","woreda_eng":""}"""
 
 
 def _gemini_front_to_lines(g: dict):
