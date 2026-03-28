@@ -230,17 +230,12 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
-    is_v3 = model.startswith("gemini-2.5")
-
     gen_config = {
-        "temperature": 0,    # deterministic output — no creativity
-        "topP": 0.1,         # only top 10% probability mass — strict OCR mode
-        "topK": 1,           # always pick highest-probability token
+        "temperature": 0,
+        "topP": 0.1,
+        "topK": 1,
         "maxOutputTokens": 1024,
     }
-    if is_v3:
-        # disable thinking entirely — prevents autocorrection of Amharic names
-        gen_config["thinkingConfig"] = {"thinkingMode": "disabled"}
 
     body = {
         "contents": [{
