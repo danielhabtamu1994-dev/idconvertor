@@ -299,8 +299,8 @@ export default function Settings() {
               <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:8}}>🤖 Gemini Model</label>
               <div style={{display:'flex',gap:8}}>
                 {[
-                  {id:'gemini-3-flash-preview', label:'3 Flash', badge:'🆕 ምርጥ', color:'#7c3aed'},
-                  {id:'gemini-2.0-flash',       label:'2.0 Flash', badge:'✅ Stable', color:'#0f766e'},
+                  {id:'gemini-2.5-flash', label:'2.5 Flash', badge:'🆕 ምርጥ', color:'#7c3aed'},
+                  {id:'gemini-2.0-flash', label:'2.0 Flash', badge:'✅ Stable', color:'#0f766e'},
                 ].map(m=>(
                   <button key={m.id}
                     onClick={()=>setGeminiModel(m.id)}
