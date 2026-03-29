@@ -237,15 +237,19 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
         resp.raise_for_status()
     rj = resp.json()
-    # HTML-proven path: candidates[0].content.parts[0].text
     text = rj["candidates"][0]["content"]["parts"][0]["text"]
-    # strip any accidental markdown fences
+    print("GEMINI RAW TEXT REPR:", repr(text[:300]))
+    # strip markdown fences
     text = text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
+    # find JSON object boundaries
+    s, e = text.find("{"), text.rfind("}")
+    if s != -1 and e != -1:
+        text = text[s:e+1]
     return _j.loads(text)
 
 PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
