@@ -262,7 +262,7 @@ STRICT RULES:
 - If a field is not visible or unclear, use empty string "".
 
 Return this JSON and nothing else:
-{"full_name_amh":"","full_name_eng":"","date_of_birth_greg":"","date_of_birth_et":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
+{"full_name_amh":"","full_name_eng":"","date_of_birth":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
 
 PROMPT_BACK = """TASK: OCR extraction from an Ethiopian Digital ID card (back side).
 OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
