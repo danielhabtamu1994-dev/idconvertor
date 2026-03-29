@@ -39,6 +39,86 @@ const BACK_MAP_FIELDS = [
 ];
 
 // Defined OUTSIDE to prevent remount on every render
+function _normSex(raw) {
+  const s = raw.toLowerCase();
+  if (s.includes('female') || s.includes('ሴት')) return 'ሴት | Female';
+  if (s.includes('male') || s.includes('ወንድ')) return 'ወንድ | Male';
+  return raw;
+}
+
+function AdminJsonPaste({ onFrontJson, onBackJson }) {
+  const [frontText, setFrontText] = React.useState('');
+  const [backText,  setBackText]  = React.useState('');
+  const [frontErr,  setFrontErr]  = React.useState('');
+  const [backErr,   setBackErr]   = React.useState('');
+
+  const applyFront = () => {
+    try {
+      const j = JSON.parse(frontText.trim());
+      onFrontJson(j);
+      setFrontErr('');
+      setFrontText('');
+    } catch(e) { setFrontErr('❌ JSON ስህተት: ' + e.message); }
+  };
+
+  const applyBack = () => {
+    try {
+      const j = JSON.parse(backText.trim());
+      onBackJson(j);
+      setBackErr('');
+      setBackText('');
+    } catch(e) { setBackErr('❌ JSON ስህተት: ' + e.message); }
+  };
+
+  return (
+    <div className="card">
+      <p className="card-title">📋 Admin — JSON Paste (OCR bypass)</p>
+      <div className="grid-2">
+        <div>
+          <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>🪪 Front JSON</p>
+          <textarea
+            style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
+              border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
+              background:'var(--bg)',color:'var(--text)'}}
+            placeholder={'{
+  "full_name_amh": "",
+  "full_name_eng": "",
+  ...
+}'}
+            value={frontText}
+            onChange={e=>setFrontText(e.target.value)}
+          />
+          {frontErr && <p style={{fontSize:11,color:'#dc2626',marginTop:4}}>{frontErr}</p>}
+          <button className="btn btn-primary btn-sm" style={{marginTop:6,width:'100%'}}
+            onClick={applyFront} disabled={!frontText.trim()}>
+            ✅ Apply Front
+          </button>
+        </div>
+        <div>
+          <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>🪪 Back JSON</p>
+          <textarea
+            style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
+              border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
+              background:'var(--bg)',color:'var(--text)'}}
+            placeholder={'{
+  "phone": "",
+  "fin": "",
+  ...
+}'}
+            value={backText}
+            onChange={e=>setBackText(e.target.value)}
+          />
+          {backErr && <p style={{fontSize:11,color:'#dc2626',marginTop:4}}>{backErr}</p>}
+          <button className="btn btn-primary btn-sm" style={{marginTop:6,width:'100%'}}
+            onClick={applyBack} disabled={!backText.trim()}>
+            ✅ Apply Back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminOCRSection({ side, lines, setLines, mapping, setMap, fields, getLabel, saveMapping }) {
   const [mapMode, setMapMode] = useState('normal');
 
@@ -359,15 +439,7 @@ export default function Convert() {
       {isAdmin && (
         <div className="card">
           <p className="card-title">🔧 Admin — ፎቶ እና QR Manual Upload</p>
-          {hasSavedMapping && (
-            <div style={{fontSize:11,color:'#16a34a',background:'rgba(22,163,74,0.08)',borderRadius:6,padding:'6px 10px',marginBottom:10,display:'flex',alignItems:'center',gap:8}}>
-              ✅ Saved mapping active
-              <button className="btn btn-sm btn-outline" style={{fontSize:10,padding:'2px 8px'}}
-                onClick={()=>setSavedMapping(false)}>
-                Reset to auto
-              </button>
-            </div>
-          )}
+
           <div className="grid-2">
             <div>
               <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>📸 ፎቶ (manually upload)</p>
@@ -398,6 +470,25 @@ export default function Convert() {
       {isAdmin && (
         <AdminOCRSection side="back" lines={backLines} setLines={setBackLines}
           mapping={bn} setMap={setBn} fields={BACK_MAP_FIELDS} getLabel={getBackLabel} saveMapping={saveMapping}/>
+      )}
+
+      {isAdmin && (
+        <AdminJsonPaste
+          onFrontJson={(j)=>{
+            const lines=[j.full_name_amh||'',j.full_name_eng||'',j.date_of_birth_greg||'',j.date_of_birth_et||'',
+              _normSex(j.sex||''),j.date_of_expiry_greg||'',j.date_of_expiry_et||'',j.fan||''];
+            setFrontLines(lines);
+            setFn(p=>({...p,amh_n:1,eng_n:2,dob_n:3,sex_n:5,exp_n:6,fan_n:8}));
+            if(j.fan) setFanManual(j.fan.replace(/\D/g,''));
+          }}
+          onBackJson={(j)=>{
+            const lines=['','',j.phone||'','',j.fin||'','',j.address_amh||'',j.address_eng||'',
+              j.zone_amh||'',j.zone_eng||'',(j.woreda_amh||'')+' '+(j.woreda_num||''),j.woreda_eng||''];
+            setBackLines(lines);
+            setBn(p=>({...p,phone_n:3,fin_n:5,addr_amh_n:7,addr_eng_n:8,zone_amh_n:9,zone_eng_n:10,woreda_amh_n:11,woreda_eng_n:12}));
+            if(j.fin) setFinManual(j.fin.replace(/\D/g,''));
+          }}
+        />
       )}
 
       <div className="card">
