@@ -163,9 +163,7 @@ export default function Settings() {
   const [natEn,    setNatEn]    = useState('Ethiopian');
   const [fieldMapFront, setFieldMapFront] = useState({});
   const [fieldMapBack,  setFieldMapBack]  = useState({});
-  const [ocrMode,  setOcrMode]  = useState('normal');
   const [geminiKey,  setGeminiKey]  = useState('');
-  const [geminiModel,setGeminiModel]= useState('gemini-2.0-flash');
   const fgRef = useRef(); const bgRef = useRef();
 
   useEffect(()=>{
@@ -180,9 +178,7 @@ export default function Settings() {
       if(data.field_map_back)  setFieldMapBack(data.field_map_back);
     // Load API settings separately
     API.get('/settings/api-settings').then(({data:a})=>{
-      if(a.ocr_mode)   setOcrMode(a.ocr_mode);
       if(a.gemini_key)   setGeminiKey(a.gemini_key);
-      if(a.gemini_model) setGeminiModel(a.gemini_model);
     }).catch(()=>{});
     }).catch(()=>{});
     API.get('/auth/deposit-settings').then(({data})=>{
@@ -208,7 +204,7 @@ export default function Settings() {
 
   const saveApiSettings = async () => {
     try {
-      await API.put('/settings/api-settings', { ocr_mode: ocrMode, gemini_key: geminiKey, gemini_model: geminiModel });
+      await API.put('/settings/api-settings', { ocr_mode: 'gemini', gemini_key: geminiKey, gemini_model: 'gemini-2.5-flash' });
       toast.success('✅ API Settings saved!');
     } catch { toast.error('Failed'); }
   };
@@ -267,63 +263,19 @@ export default function Settings() {
       {/* API Settings tab */}
       {tab==='api' && (
         <div className="card" style={{maxWidth:480}}>
-          <p className="card-title">🤖 OCR Mode</p>
+          <p className="card-title">🤖 Gemini OCR — 2.5 Flash</p>
 
-          {/* Mode toggle */}
-          <div style={{display:'flex',gap:10,marginBottom:20}}>
-            {['normal','gemini'].map(m=>(
-              <button key={m}
-                className={`btn btn-sm ${ocrMode===m?'btn-primary':'btn-outline'}`}
-                style={{flex:1,padding:'10px 0',fontSize:13}}
-                onClick={()=>setOcrMode(m)}>
-                {m==='normal'?'1️⃣ Normal (Tesseract)':'2️⃣ API (Gemini)'}
-              </button>
-            ))}
+          <div className="form-group">
+            <label>🔑 Gemini API Key</label>
+            <input className="form-input"
+              type="password"
+              placeholder="AIza..."
+              value={geminiKey}
+              onChange={e=>setGeminiKey(e.target.value)}/>
+            <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
+              Google AI Studio → <strong>aistudio.google.com</strong> → Get API Key
+            </p>
           </div>
-
-          {/* Gemini key input — only when gemini selected */}
-          {ocrMode==='gemini' && (
-            <>
-            <div className="form-group">
-              <label>🔑 Gemini API Key</label>
-              <input className="form-input"
-                type="password"
-                placeholder="AIza..."
-                value={geminiKey}
-                onChange={e=>setGeminiKey(e.target.value)}/>
-              <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
-                Google AI Studio → <strong>makersuite.google.com</strong> → Get API Key
-              </p>
-            </div>
-            <div style={{marginTop:12}}>
-              <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:8}}>🤖 Gemini Model</label>
-              <div style={{display:'flex',gap:8}}>
-                {[
-                  {id:'gemini-2.5-flash', label:'2.5 Flash', badge:'🆕 ምርጥ', color:'#7c3aed'},
-                  {id:'gemini-2.0-flash', label:'2.0 Flash', badge:'✅ Stable', color:'#0f766e'},
-                ].map(m=>(
-                  <button key={m.id}
-                    onClick={()=>setGeminiModel(m.id)}
-                    style={{
-                      flex:1, padding:'10px 8px', border:`2px solid ${geminiModel===m.id?m.color:'var(--border)'}`,
-                      borderRadius:8, background: geminiModel===m.id?`${m.color}18`:'var(--bg)',
-                      cursor:'pointer', textAlign:'center', transition:'all .15s'
-                    }}>
-                    <div style={{fontWeight:700,fontSize:13,color:geminiModel===m.id?m.color:'var(--text)'}}>{m.label}</div>
-                    <div style={{fontSize:10,color:geminiModel===m.id?m.color:'var(--text-muted)',marginTop:2}}>{m.badge}</div>
-                    <div style={{fontSize:9,color:'var(--text-muted)',marginTop:3,wordBreak:'break-all'}}>{m.id}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            </>
-          )}
-
-          {ocrMode==='normal' && (
-            <div style={{background:'var(--bg)',borderRadius:8,padding:12,fontSize:12,color:'var(--text-muted)'}}>
-              ✅ Tesseract OCR — free, works offline. Accuracy depends on image quality.
-            </div>
-          )}
 
           <button className="btn btn-primary" style={{marginTop:12}} onClick={saveApiSettings}>
             💾 Save API Settings
