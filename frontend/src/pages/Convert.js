@@ -80,7 +80,7 @@ function AdminJsonPaste({ onFrontJson, onBackJson }) {
             style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
               border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
               background:'var(--bg)',color:'var(--text)'}}
-            placeholder="{ \"full_name_amh\": \"\", \"full_name_eng\": \"\", ... }"
+            placeholder='Front JSON here...'
             value={frontText}
             onChange={e=>setFrontText(e.target.value)}
           />
@@ -96,7 +96,7 @@ function AdminJsonPaste({ onFrontJson, onBackJson }) {
             style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
               border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
               background:'var(--bg)',color:'var(--text)'}}
-            placeholder="{ \"phone\": \"\", \"fin\": \"\", ... }"
+            placeholder='Back JSON here...'
             value={backText}
             onChange={e=>setBackText(e.target.value)}
           />
