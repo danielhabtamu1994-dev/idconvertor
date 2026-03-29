@@ -213,29 +213,12 @@ def _detect_mime(image_bytes: bytes) -> str:
     return "image/jpeg"
 
 
-def _parse_gemini_json(raw: str) -> dict:
-    import json as _j, re as _r
-    text = raw.strip()
-    m = _r.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-    if m: text = m.group(1).strip()
-    s, e = text.find('{'), text.rfind('}')
-    if s != -1 and e != -1: text = text[s:e+1]
-    return _j.loads(text)
-
 def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "gemini-2.5-flash") -> dict:
-    import requests as _req, base64 as _b64
+    import requests as _req, base64 as _b64, json as _j
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={gemini_key}"
     )
-    gen_config = {
-        "temperature": 0,
-        "topP": 0.1,
-        "topK": 1,
-        "maxOutputTokens": 1024,
-        "responseMimeType": "application/json",
-    }
-
     body = {
         "contents": [{
             "parts": [
@@ -243,20 +226,27 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
                 {"text": prompt}
             ]
         }],
-        "generationConfig": gen_config
+        "generationConfig": {
+            "temperature": 0,
+            "maxOutputTokens": 1024,
+            "responseMimeType": "application/json"
+        }
     }
     resp = _req.post(url, json=body, timeout=40)
     if not resp.ok:
         print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
         resp.raise_for_status()
     rj = resp.json()
-    print("GEMINI RAW RESPONSE:", str(rj)[:500])
-    part = rj["candidates"][0]["content"]["parts"][0]
-    # responseMimeType=application/json may return direct dict or text
-    if isinstance(part.get("text"), str):
-        return _parse_gemini_json(part["text"])
-    else:
-        return part  # already a dict
+    # HTML-proven path: candidates[0].content.parts[0].text
+    text = rj["candidates"][0]["content"]["parts"][0]["text"]
+    # strip any accidental markdown fences
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    return _j.loads(text)
 
 PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
 OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
