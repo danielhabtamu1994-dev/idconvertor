@@ -49,60 +49,57 @@ function _normSex(raw) {
 function AdminJsonPaste({ onFrontJson, onBackJson }) {
   const [frontText, setFrontText] = useState('');
   const [backText,  setBackText]  = useState('');
+  const [bothText,  setBothText]  = useState('');
   const [frontErr,  setFrontErr]  = useState('');
   const [backErr,   setBackErr]   = useState('');
+  const [bothErr,   setBothErr]   = useState('');
 
   const applyFront = () => {
+    try { const j=JSON.parse(frontText.trim()); onFrontJson(j); setFrontErr(''); setFrontText(''); }
+    catch(e) { setFrontErr('❌ JSON ስህተት: '+e.message); }
+  };
+  const applyBack = () => {
+    try { const j=JSON.parse(backText.trim()); onBackJson(j); setBackErr(''); setBackText(''); }
+    catch(e) { setBackErr('❌ JSON ስህተት: '+e.message); }
+  };
+  const applyBoth = () => {
     try {
-      const j = JSON.parse(frontText.trim());
+      const j=JSON.parse(bothText.trim());
       onFrontJson(j);
-      setFrontErr('');
-      setFrontText('');
-    } catch(e) { setFrontErr('❌ JSON ስህተት: ' + e.message); }
+      onBackJson(j);
+      setBothErr(''); setBothText('');
+    } catch(e) { setBothErr('❌ JSON ስህተት: '+e.message); }
   };
 
-  const applyBack = () => {
-    try {
-      const j = JSON.parse(backText.trim());
-      onBackJson(j);
-      setBackErr('');
-      setBackText('');
-    } catch(e) { setBackErr('❌ JSON ስህተት: ' + e.message); }
-  };
+  const taStyle = {width:'100%',minHeight:110,fontSize:11,fontFamily:'monospace',
+    border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
+    background:'var(--bg)',color:'var(--text)'};
 
   return (
     <div className="card">
-      <p className="card-title">📋 Admin — JSON Paste (OCR bypass)</p>
+      <p className="card-title">📋 Admin — JSON Paste</p>
+      <div style={{marginBottom:16}}>
+        <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>🔀 Both Sides (Front + Back combined)</p>
+        <textarea style={taStyle} placeholder="Both sides JSON here..." value={bothText} onChange={e=>setBothText(e.target.value)}/>
+        {bothErr && <p style={{fontSize:11,color:'#dc2626',marginTop:4}}>{bothErr}</p>}
+        <button className="btn btn-primary btn-sm" style={{marginTop:6,width:'100%'}} onClick={applyBoth} disabled={!bothText.trim()}>
+          ✅ Apply Both Sides
+        </button>
+      </div>
       <div className="grid-2">
         <div>
-          <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>🪪 Front JSON</p>
-          <textarea
-            style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
-              border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
-              background:'var(--bg)',color:'var(--text)'}}
-            placeholder='Front JSON here...'
-            value={frontText}
-            onChange={e=>setFrontText(e.target.value)}
-          />
+          <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>🪪 Front JSON only</p>
+          <textarea style={taStyle} placeholder="Front JSON here..." value={frontText} onChange={e=>setFrontText(e.target.value)}/>
           {frontErr && <p style={{fontSize:11,color:'#dc2626',marginTop:4}}>{frontErr}</p>}
-          <button className="btn btn-primary btn-sm" style={{marginTop:6,width:'100%'}}
-            onClick={applyFront} disabled={!frontText.trim()}>
+          <button className="btn btn-primary btn-sm" style={{marginTop:6,width:'100%'}} onClick={applyFront} disabled={!frontText.trim()}>
             ✅ Apply Front
           </button>
         </div>
         <div>
-          <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>🪪 Back JSON</p>
-          <textarea
-            style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
-              border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
-              background:'var(--bg)',color:'var(--text)'}}
-            placeholder='Back JSON here...'
-            value={backText}
-            onChange={e=>setBackText(e.target.value)}
-          />
+          <p style={{fontSize:12,fontWeight:600,marginBottom:6}}>🪪 Back JSON only</p>
+          <textarea style={taStyle} placeholder="Back JSON here..." value={backText} onChange={e=>setBackText(e.target.value)}/>
           {backErr && <p style={{fontSize:11,color:'#dc2626',marginTop:4}}>{backErr}</p>}
-          <button className="btn btn-primary btn-sm" style={{marginTop:6,width:'100%'}}
-            onClick={applyBack} disabled={!backText.trim()}>
+          <button className="btn btn-primary btn-sm" style={{marginTop:6,width:'100%'}} onClick={applyBack} disabled={!backText.trim()}>
             ✅ Apply Back
           </button>
         </div>
@@ -485,17 +482,27 @@ export default function Convert() {
         />
       )}
 
+      <style>{`
+        @keyframes blink-red { 0%,100%{box-shadow:0 0 0 2px #ef4444} 50%{box-shadow:0 0 0 2px transparent} }
+        .input-ok  { border:2px solid #16a34a !important; box-shadow:none !important; }
+        .input-err { border:2px solid #ef4444 !important; animation:blink-red 1.2s ease-in-out infinite; }
+        .input-empty { border:1px solid var(--border) !important; }
+      `}</style>
       <div className="card">
         <div className="grid-2">
           <div className="form-group" style={{marginBottom:0}}>
             <label>🔖 FAN (16 ዲጂት)</label>
-            <input className="form-input" placeholder="1234567890123456"
+            <input className={`form-input ${fanManual.length===0?'input-empty':fanManual.length===16?'input-ok':'input-err'}`}
+              placeholder="1234567890123456"
               value={fanManual} onChange={e=>setFanManual(e.target.value.replace(/\D/g,''))} maxLength={16}/>
+            {fanManual.length>0 && fanManual.length<16 && <p style={{fontSize:10,color:'#ef4444',marginTop:2}}>{16-fanManual.length} ቁጥር ይቀራል</p>}
           </div>
           <div className="form-group" style={{marginBottom:0}}>
             <label>🔢 FIN (12 ዲጂት)</label>
-            <input className="form-input" placeholder="123456789012"
+            <input className={`form-input ${finManual.length===0?'input-empty':finManual.length===12?'input-ok':'input-err'}`}
+              placeholder="123456789012"
               value={finManual} onChange={e=>setFinManual(e.target.value.replace(/\D/g,''))} maxLength={12}/>
+            {finManual.length>0 && finManual.length<12 && <p style={{fontSize:10,color:'#ef4444',marginTop:2}}>{12-finManual.length} ቁጥር ይቀራል</p>}
           </div>
         </div>
       </div>
