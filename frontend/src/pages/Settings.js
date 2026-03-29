@@ -161,9 +161,9 @@ export default function Settings() {
   const [bgBack,   setBgBack]   = useState('');
   const [natAm,    setNatAm]    = useState('ኢትዮጵያዊ');
   const [natEn,    setNatEn]    = useState('Ethiopian');
-  const [fieldMapFront, setFieldMapFront] = useState({});
-  const [fieldMapBack,  setFieldMapBack]  = useState({});
+  const [ocrMode,  setOcrMode]  = useState('normal');
   const [geminiKey,  setGeminiKey]  = useState('');
+  const [geminiModel,setGeminiModel]= useState('gemini-2.5-flash');
   const fgRef = useRef(); const bgRef = useRef();
 
   useEffect(()=>{
@@ -174,11 +174,11 @@ export default function Settings() {
       if(data.size_back) setSizeBack(p=>({...p,...data.size_back}));
       if(data.nat_am)    setNatAm(data.nat_am);
       if(data.nat_en)    setNatEn(data.nat_en);
-      if(data.field_map_front) setFieldMapFront(data.field_map_front);
-      if(data.field_map_back)  setFieldMapBack(data.field_map_back);
     // Load API settings separately
     API.get('/settings/api-settings').then(({data:a})=>{
+      if(a.ocr_mode)   setOcrMode(a.ocr_mode);
       if(a.gemini_key)   setGeminiKey(a.gemini_key);
+      if(a.gemini_model) setGeminiModel(a.gemini_model);
     }).catch(()=>{});
     }).catch(()=>{});
     API.get('/auth/deposit-settings').then(({data})=>{
@@ -189,7 +189,7 @@ export default function Settings() {
   const save = async()=>{
     setSaving(true);
     try{
-      await API.put('/settings/',{pos,size,pos_back:posBack,size_back:sizeBack,nat_am:natAm,nat_en:natEn,field_map_front:fieldMapFront,field_map_back:fieldMapBack});
+      await API.put('/settings/',{pos,size,pos_back:posBack,size_back:sizeBack,nat_am:natAm,nat_en:natEn});
       toast.success('✅ Settings saved!');
     }catch{ toast.error('Save failed'); }
     finally{ setSaving(false); }
@@ -204,7 +204,7 @@ export default function Settings() {
 
   const saveApiSettings = async () => {
     try {
-      await API.put('/settings/api-settings', { ocr_mode: 'gemini', gemini_key: geminiKey, gemini_model: 'gemini-2.5-flash' });
+      await API.put('/settings/api-settings', { ocr_mode: ocrMode, gemini_key: geminiKey, gemini_model: geminiModel });
       toast.success('✅ API Settings saved!');
     } catch { toast.error('Failed'); }
   };
@@ -263,19 +263,50 @@ export default function Settings() {
       {/* API Settings tab */}
       {tab==='api' && (
         <div className="card" style={{maxWidth:480}}>
-          <p className="card-title">🤖 Gemini OCR — 2.5 Flash</p>
+          <p className="card-title">🤖 OCR Mode</p>
 
-          <div className="form-group">
-            <label>🔑 Gemini API Key</label>
-            <input className="form-input"
-              type="password"
-              placeholder="AIza..."
-              value={geminiKey}
-              onChange={e=>setGeminiKey(e.target.value)}/>
-            <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
-              Google AI Studio → <strong>aistudio.google.com</strong> → Get API Key
-            </p>
+          {/* Mode toggle */}
+          <div style={{display:'flex',gap:10,marginBottom:20}}>
+            {['normal','gemini'].map(m=>(
+              <button key={m}
+                className={`btn btn-sm ${ocrMode===m?'btn-primary':'btn-outline'}`}
+                style={{flex:1,padding:'10px 0',fontSize:13}}
+                onClick={()=>setOcrMode(m)}>
+                {m==='normal'?'1️⃣ Normal (Tesseract)':'2️⃣ API (Gemini)'}
+              </button>
+            ))}
           </div>
+
+          {/* Gemini key input — only when gemini selected */}
+          {ocrMode==='gemini' && (
+            <div className="form-group">
+              <label>🔑 Gemini API Key</label>
+              <input className="form-input"
+                type="password"
+                placeholder="AIza..."
+                value={geminiKey}
+                onChange={e=>setGeminiKey(e.target.value)}/>
+              <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
+                Google AI Studio → <strong>makersuite.google.com</strong> → Get API Key
+              </p>
+            </div>
+            <div className="form-group" style={{marginTop:12}}>
+              <label>🤖 Gemini Model</label>
+              <input className="form-input"
+                placeholder="gemini-2.5-flash"
+                value={geminiModel}
+                onChange={e=>setGeminiModel(e.target.value)}/>
+              <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
+                ምሳሌ: gemini-2.5-flash · gemini-2.0-flash · gemini-1.5-flash
+              </p>
+            </div>
+          )}
+
+          {ocrMode==='normal' && (
+            <div style={{background:'var(--bg)',borderRadius:8,padding:12,fontSize:12,color:'var(--text-muted)'}}>
+              ✅ Tesseract OCR — free, works offline. Accuracy depends on image quality.
+            </div>
+          )}
 
           <button className="btn btn-primary" style={{marginTop:12}} onClick={saveApiSettings}>
             💾 Save API Settings
