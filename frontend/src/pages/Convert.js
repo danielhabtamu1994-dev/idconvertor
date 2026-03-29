@@ -366,8 +366,8 @@ export default function Convert() {
   })[i]||'';
 
   const handleContinue = async () => {
-    if (!frontFile) return toast.error('ID Front ያስገቡ');
-    if (!backFile)  return toast.error('ID Back ያስገቡ');
+    if (!frontFile && frontLines.length === 0) return toast.error('ID Front ያስገቡ ወይም JSON ይለጥፉ');
+    if (!backFile  && backLines.length  === 0) return toast.error('ID Back ያስገቡ ወይም JSON ይለጥፉ');
     if ((user?.balance ?? 0) < 20) return toast.error('በቂ ብር የለም — Deposit አድርጉ');
 
     const snPrefix = Math.random() < 0.5 ? '6' : '7';
