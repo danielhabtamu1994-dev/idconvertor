@@ -249,7 +249,14 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
     if not resp.ok:
         print("GEMINI HTTP ERROR:", resp.status_code, resp.text[:500])
         resp.raise_for_status()
-    return _parse_gemini_json(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    rj = resp.json()
+    print("GEMINI RAW RESPONSE:", str(rj)[:500])
+    part = rj["candidates"][0]["content"]["parts"][0]
+    # responseMimeType=application/json may return direct dict or text
+    if isinstance(part.get("text"), str):
+        return _parse_gemini_json(part["text"])
+    else:
+        return part  # already a dict
 
 PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
 OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
