@@ -260,9 +260,10 @@ STRICT RULES:
     Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
 - DO NOT apply Amharic grammar or spelling knowledge. Treat it as pixel data only.
 - If a field is not visible or unclear, use empty string "".
+- Numbers: digits only, no spaces, no dashes.
 
 Return this JSON and nothing else:
-{"full_name_amh":"","full_name_eng":"","date_of_birth":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
+{"full_name_amh":"","full_name_eng":"","date_of_birth_greg":"","date_of_birth_et":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
 
 PROMPT_BACK = """TASK: OCR extraction from an Ethiopian Digital ID card (back side).
 OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
@@ -287,6 +288,14 @@ Return this JSON and nothing else:
 {"phone":"","fin":"","address_amh":"","address_eng":"","zone_amh":"","zone_eng":"","woreda_amh":"","woreda_num":"","woreda_eng":""}"""
 
 
+def _normalize_sex(raw: str) -> str:
+    s = raw.strip().lower()
+    if any(x in s for x in ["male","ወንድ","m"]):
+        return "ወንድ | Male"
+    if any(x in s for x in ["female","ሴት","f"]):
+        return "ሴት | Female"
+    return raw
+
 def _gemini_front_to_lines(g: dict):
     """Convert Gemini JSON to lines[] + detected{} format for frontend compatibility."""
     lines = [
@@ -294,7 +303,7 @@ def _gemini_front_to_lines(g: dict):
         g.get("full_name_eng",""),
         g.get("date_of_birth_greg",""),
         g.get("date_of_birth_et",""),
-        g.get("sex",""),
+        _normalize_sex(g.get("sex","")),
         g.get("date_of_expiry_greg",""),
         g.get("date_of_expiry_et",""),
         g.get("fan",""),
