@@ -301,10 +301,10 @@ def _gemini_front_to_lines(g: dict):
     lines = [
         g.get("full_name_amh",""),
         g.get("full_name_eng",""),
-        g.get("date_of_birth_greg",""),
+        g.get("date_of_birth",""),
         g.get("date_of_birth_et",""),
         _normalize_sex(g.get("sex","")),
-        g.get("date_of_expiry_greg",""),
+        g.get("date_of_expiry",""),
         g.get("date_of_expiry_et",""),
         g.get("fan",""),
     ]
