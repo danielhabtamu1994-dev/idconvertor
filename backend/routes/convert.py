@@ -244,27 +244,26 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         text = text[s:e+1]
     return _j.loads(text)
 
-PROMPT_FRONT = """ACT AS: A high-precision OCR scanner for Ethiopian National IDs.
-
-TASK: Extract data from the provided image(s) with 100% character-level accuracy.
+PROMPT_FRONT = """TASK: OCR extraction from an Ethiopian Digital ID card (front side).
+OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
 
 STRICT RULES:
-1. RAW EXTRACTION: Transcribe the text exactly as visually printed. Do NOT autocorrect, do NOT normalize Amharic characters (e.g., if it says "ምናለ", do NOT change it to "ምናሌ").
-2. LINGUISTIC NEUTRALITY: Treat Amharic characters as visual symbols. Ignore grammar or common naming conventions.
-3. OUTPUT FORMAT: Return ONLY a valid JSON object. No conversational text, no explanations.
-4. MISSING DATA: If a field is unreadable or missing, use "N/A".
+- You are a pixel-reader, not a language model. Do NOT autocorrect, normalize, or guess.
+- Ethiopic script has 7 vowel forms per consonant base. Each form is a distinct character.
+  Read the exact vowel mark on every character. These pairs are most often confused:
+    Base ሰ: ሰ ሱ ሲ ሳ ሴ ስ ሶ  — check the right/bottom mark carefully
+    Base ደ: ደ ዱ ዲ ዳ ዴ ድ ዶ  — ደ vs ድ differ only in a small bottom mark
+    Base ረ: ረ ሩ ሪ ራ ሬ ር ሮ  — ረ vs ሬ vs ር look very similar
+    Base በ: በ ቡ ቢ ባ ቤ ብ ቦ
+    Base ነ: ነ ኑ ኒ ና ኔ ን ኖ
+    Base ተ: ተ ቱ ቲ ታ ቴ ት ቶ
+    Base ለ: ለ ሉ ሊ ላ ሌ ል ሎ
+- DO NOT apply Amharic grammar or spelling knowledge. Treat it as pixel data only.
+- If a field is not visible or unclear, use empty string "".
 
-JSON STRUCTURE:
-{
-  "full_name_amh": "",
-  "full_name_eng": "",
-  "date_of_birth_greg": "",
-  "date_of_birth_et": "",
-  "sex": "",
-  "date_of_expiry_greg": "",
-  "date_of_expiry_et": "",
-  "fan": ""
-}
+Return this JSON and nothing else:
+{"full_name_amh":"","full_name_eng":"","date_of_birth_greg":"","date_of_birth_et":"","sex":"","date_of_expiry_greg":"","date_of_expiry_et":"","fan":""}"""
+
 PROMPT_BACK = """TASK: OCR extraction from an Ethiopian Digital ID card (back side).
 OUTPUT: Return ONLY a raw JSON object. No markdown, no explanation, no extra text.
 
