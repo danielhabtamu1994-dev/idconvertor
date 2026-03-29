@@ -228,7 +228,6 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         }],
         "generationConfig": {
             "temperature": 0,
-            "maxOutputTokens": 1024,
             "responseMimeType": "application/json"
         }
     }
