@@ -80,11 +80,7 @@ function AdminJsonPaste({ onFrontJson, onBackJson }) {
             style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
               border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
               background:'var(--bg)',color:'var(--text)'}}
-            placeholder={'{
-  "full_name_amh": "",
-  "full_name_eng": "",
-  ...
-}'}
+            placeholder="{ \"full_name_amh\": \"\", \"full_name_eng\": \"\", ... }"
             value={frontText}
             onChange={e=>setFrontText(e.target.value)}
           />
@@ -100,11 +96,7 @@ function AdminJsonPaste({ onFrontJson, onBackJson }) {
             style={{width:'100%',minHeight:120,fontSize:11,fontFamily:'monospace',
               border:'1px solid var(--border)',borderRadius:6,padding:6,resize:'vertical',
               background:'var(--bg)',color:'var(--text)'}}
-            placeholder={'{
-  "phone": "",
-  "fin": "",
-  ...
-}'}
+            placeholder="{ \"phone\": \"\", \"fin\": \"\", ... }"
             value={backText}
             onChange={e=>setBackText(e.target.value)}
           />
@@ -481,14 +473,14 @@ export default function Convert() {
               _normSex(j.sex||''),j.date_of_expiry_greg||'',j.date_of_expiry_et||'',j.fan||''];
             setFrontLines(lines);
             setFn(p=>({...p,amh_n:1,eng_n:2,dob_n:3,sex_n:5,exp_n:6,fan_n:8}));
-            if(j.fan) setFanManual(j.fan.replace(/\D/g,''));
+            if(j.fan) setFanManual(j.fan.replace(/[^0-9]/g,''));
           }}
           onBackJson={(j)=>{
             const lines=['','',j.phone||'','',j.fin||'','',j.address_amh||'',j.address_eng||'',
               j.zone_amh||'',j.zone_eng||'',(j.woreda_amh||'')+' '+(j.woreda_num||''),j.woreda_eng||''];
             setBackLines(lines);
             setBn(p=>({...p,phone_n:3,fin_n:5,addr_amh_n:7,addr_eng_n:8,zone_amh_n:9,zone_eng_n:10,woreda_amh_n:11,woreda_eng_n:12}));
-            if(j.fin) setFinManual(j.fin.replace(/\D/g,''));
+            if(j.fin) setFinManual(j.fin.replace(/[^0-9]/g,''));
           }}
         />
       )}
