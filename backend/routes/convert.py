@@ -233,6 +233,7 @@ def _gemini_ocr(image_bytes: bytes, prompt: str, gemini_key: str, model: str = "
         "topP": 0.1,
         "topK": 1,
         "maxOutputTokens": 1024,
+        "responseMimeType": "application/json",
     }
 
     body = {
