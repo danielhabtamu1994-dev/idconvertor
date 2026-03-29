@@ -198,14 +198,12 @@ def crop_qr_from_card(card, margin=18):
 # ══════════════════════════════════════════════════════════════════
 # Routes
 # ══════════════════════════════════════════════════════════════════
-import pytesseract
-
 # ══════════════════════════════════════════════════════════════════
 # Gemini Vision OCR helpers
 # ══════════════════════════════════════════════════════════════════
-def _get_ocr_mode():
+def _get_gemini_key():
     cfg = firebase_get("api_settings") or {}
-    return cfg.get("ocr_mode","normal"), cfg.get("gemini_key",""), cfg.get("gemini_model","gemini-2.5-flash")
+    return cfg.get("gemini_key", "")
 
 def _detect_mime(image_bytes: bytes) -> str:
     if image_bytes[:8] == b'\x89PNG\r\n\x1a\n': return "image/png"
@@ -349,56 +347,34 @@ def _gemini_back_to_lines(g: dict):
 @router.post("/ocr/front")
 async def ocr_front(file: UploadFile = File(...), token=Depends(verify_token)):
     data = await file.read()
-    mode, gemini_key, model = _get_ocr_mode()
-
-    if mode == "gemini":
-        if not gemini_key:
-            raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
-        try:
-            g = _gemini_ocr(data, PROMPT_FRONT, gemini_key, model)
-            lines, detected = _gemini_front_to_lines(g)
-            return {"lines": lines, "detected": detected, "source": "gemini"}
-        except Exception as e:
-            import traceback
-            print("GEMINI FRONT ERROR:", str(e))
-            print(traceback.format_exc())
-            raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
-
-    # Normal tesseract OCR
-    img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    h, w    = img.shape[:2]
-    id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
-    gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-    text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split("\n") if len(l.strip()) > 1]
-    return {"lines": lines, "detected": auto_detect_fields(lines), "source": "normal"}
+    gemini_key = _get_gemini_key()
+    if not gemini_key:
+        raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
+    try:
+        g = _gemini_ocr(data, PROMPT_FRONT, gemini_key)
+        lines, detected = _gemini_front_to_lines(g)
+        return {"lines": lines, "detected": detected, "source": "gemini"}
+    except Exception as e:
+        import traceback
+        print("GEMINI FRONT ERROR:", str(e))
+        print(traceback.format_exc())
+        raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
 
 @router.post("/ocr/back")
 async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
     data = await file.read()
-    mode, gemini_key, model = _get_ocr_mode()
-
-    if mode == "gemini":
-        if not gemini_key:
-            raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
-        try:
-            g = _gemini_ocr(data, PROMPT_BACK, gemini_key, model)
-            lines, detected = _gemini_back_to_lines(g)
-            return {"lines": lines, "detected": detected, "source": "gemini"}
-        except Exception as e:
-            import traceback
-            print("GEMINI BACK ERROR:", str(e))
-            print(traceback.format_exc())
-            raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
-
-    # Normal tesseract OCR
-    img     = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    h, w    = img.shape[:2]
-    id_only = img[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
-    gray    = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-    text    = pytesseract.image_to_string(gray, lang='amh+eng')
-    lines   = [l.strip() for l in text.split("\n") if len(l.strip()) > 1]
-    return {"lines": lines, "detected": auto_detect_fields_back(lines), "source": "normal"}
+    gemini_key = _get_gemini_key()
+    if not gemini_key:
+        raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
+    try:
+        g = _gemini_ocr(data, PROMPT_BACK, gemini_key)
+        lines, detected = _gemini_back_to_lines(g)
+        return {"lines": lines, "detected": detected, "source": "gemini"}
+    except Exception as e:
+        import traceback
+        print("GEMINI BACK ERROR:", str(e))
+        print(traceback.format_exc())
+        raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
 
 @router.post("/profile/crop")
 async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
