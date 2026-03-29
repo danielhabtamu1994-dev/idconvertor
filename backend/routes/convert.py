@@ -304,15 +304,15 @@ def _gemini_front_to_lines(g: dict):
         g.get("date_of_birth_greg",""),
         g.get("date_of_birth_et",""),
         _normalize_sex(g.get("sex","")),
-        g.get("date_of_expiry",""),
+        g.get("date_of_expiry_greg",""),
         g.get("date_of_expiry_et",""),
         g.get("fan",""),
     ]
     detected = {
         "full_name": 1 if g.get("full_name_amh") else None,
-        "date_birth": 3 if g.get("date_of_birth") else None,
+        "date_birth": 3 if g.get("date_of_birth_greg") else None,
         "sex": 5 if g.get("sex") else None,
-        "date_expiry": 6 if g.get("date_of_expiry") else None,
+        "date_expiry": 6 if g.get("date_of_expiry_greg") else None,
         "fan": 8 if g.get("fan") else None,
     }
     return lines, {k:v for k,v in detected.items() if v}
