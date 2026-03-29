@@ -47,10 +47,10 @@ function _normSex(raw) {
 }
 
 function AdminJsonPaste({ onFrontJson, onBackJson }) {
-  const [frontText, setFrontText] = React.useState('');
-  const [backText,  setBackText]  = React.useState('');
-  const [frontErr,  setFrontErr]  = React.useState('');
-  const [backErr,   setBackErr]   = React.useState('');
+  const [frontText, setFrontText] = useState('');
+  const [backText,  setBackText]  = useState('');
+  const [frontErr,  setFrontErr]  = useState('');
+  const [backErr,   setBackErr]   = useState('');
 
   const applyFront = () => {
     try {
