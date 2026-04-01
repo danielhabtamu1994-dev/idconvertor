@@ -143,36 +143,17 @@ def remove_background(img_bgr):
     except: pass
     return None
 
-def extract_white_card(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, wm = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-    k = np.ones((15,15), np.uint8)
-    wm = cv2.morphologyEx(wm, cv2.MORPH_CLOSE, k)
-    wm = cv2.morphologyEx(wm, cv2.MORPH_OPEN,  k)
-    cnts, _ = cv2.findContours(wm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not cnts: return None
-    x,y,w,h = cv2.boundingRect(max(cnts, key=cv2.contourArea))
-    return img[y:y+h, x:x+w]
-
-def crop_photo_from_card(card):
-    gray = cv2.cvtColor(card, cv2.COLOR_BGR2GRAY)
-    ch, cw = card.shape[:2]
-    rm = np.mean(gray, axis=1)
-    crow = np.where(rm < 220)[0]
-    if len(crow) == 0: return card[:ch//2,:]
-    gaps = np.diff(crow)
-    if len(gaps) > 0 and np.max(gaps) > 10:
-        si  = np.argmax(gaps)
-        top = max(0, crow[0]-5); bot = min(ch, crow[si]+5)
-        crop = card[top:bot,:]
-        cm = np.mean(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), axis=0)
-        lc = next((j for j in range(len(cm)) if cm[j]<220), 0)
-        rc = next((j for j in range(len(cm)-1,-1,-1) if cm[j]<220), len(cm)-1)
-        crop = crop[:,lc:rc+1]
-    else:
-        crop = card[:ch//2,:]
-    ph, pw = crop.shape[:2]
-    return crop[5:ph-5, 5:pw-5]
+def crop_photo_by_percent(img):
+    """Crop profile photo from screenshot using percentage-based coordinates.
+    Coordinates are device-resolution-independent.
+    Left: 26.15%  Right: 73.85%  Top: 18.75%  Bottom: 47.25%
+    """
+    h, w = img.shape[:2]
+    x1 = int(w * 0.2615)
+    x2 = int(w * 0.7385)
+    y1 = int(h * 0.1875)
+    y2 = int(h * 0.4725)
+    return img[y1:y2, x1:x2]
 
 def crop_qr_from_card(card, margin=18):
     gray = cv2.cvtColor(card, cv2.COLOR_BGR2GRAY)
@@ -382,12 +363,12 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
 async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
     import base64
     data  = await file.read()
-    img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    _card = extract_white_card(img)
-    card  = _card if _card is not None else img
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
 
-    photo_crop = crop_photo_from_card(card)
-    qr_crop    = crop_qr_from_card(card)
+    # Crop photo using percentage coordinates (device-resolution-independent)
+    photo_crop = crop_photo_by_percent(img)
+    # QR: use existing card-detection logic on full image
+    qr_crop    = crop_qr_from_card(img)
 
     bgra = remove_background(photo_crop)
     if bgra is None:
