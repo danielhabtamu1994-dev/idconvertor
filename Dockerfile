@@ -13,6 +13,10 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download rembg u2net model at build time (176MB)
+# so it does not download at runtime and kill the container
+RUN python -c "from rembg import new_session; new_session('u2net')"
+
 COPY backend/ .
 
 EXPOSE 8000
