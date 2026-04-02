@@ -124,24 +124,41 @@ def auto_detect_fields_back(lines):
     return found
 
 def remove_background(img_bgr):
-    if not REMOVE_BG_KEY: return None
+    """Remove background using rembg (u2net). Returns BGRA numpy array.
+    Pre-processes with CLAHE to improve edge detection on low-contrast shoulders.
+    """
     try:
-        _, buf = cv2.imencode('.png', img_bgr)
-        resp = req_lib.post(
-            "https://api.remove.bg/v1.0/removebg",
-            files={"image_file": ("photo.png", buf.tobytes(), "image/png")},
-            data={"size": "auto"},
-            headers={"X-Api-Key": REMOVE_BG_KEY},
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            pil  = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-            gray = pil.convert('L')
-            _, _, _, a = pil.split()
-            bw   = Image.merge('RGBA', (gray, gray, gray, a))
-            return cv2.cvtColor(np.array(bw), cv2.COLOR_RGBA2BGRA)
-    except: pass
-    return None
+        from rembg import remove as rembg_remove
+        # Pre-processing: boost contrast with CLAHE so shoulders stand out better
+        lab   = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l     = clahe.apply(l)
+        lab   = cv2.merge((l, a, b))
+        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+        # Encode to PNG and pass to rembg
+        _, buf     = cv2.imencode('.png', enhanced)
+        result_png = rembg_remove(buf.tobytes())
+        pil  = Image.open(io.BytesIO(result_png)).convert("RGBA")
+        # Convert to grayscale while keeping alpha mask
+        gray = pil.convert('L')
+        _, _, _, a = pil.split()
+        bw   = Image.merge('RGBA', (gray, gray, gray, a))
+        return cv2.cvtColor(np.array(bw), cv2.COLOR_RGBA2BGRA)
+    except Exception as e:
+        print("REMBG ERROR:", e)
+        return None
+
+def extract_white_card(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, wm = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+    k = np.ones((15,15), np.uint8)
+    wm = cv2.morphologyEx(wm, cv2.MORPH_CLOSE, k)
+    wm = cv2.morphologyEx(wm, cv2.MORPH_OPEN,  k)
+    cnts, _ = cv2.findContours(wm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts: return None
+    x,y,w,h = cv2.boundingRect(max(cnts, key=cv2.contourArea))
+    return img[y:y+h, x:x+w]
 
 def crop_photo_by_percent(img):
     """Crop profile photo from screenshot using percentage-based coordinates.
@@ -363,12 +380,13 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
 async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
     import base64
     data  = await file.read()
-    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
 
-    # Crop photo using percentage coordinates (device-resolution-independent)
+    # Photo: percentage-based crop (device-resolution-independent)
     photo_crop = crop_photo_by_percent(img)
-    # QR: use existing card-detection logic on full image
-    qr_crop    = crop_qr_from_card(img)
+    # QR: original logic — detect white card first, then crop QR from it
+    _card   = extract_white_card(img)
+    qr_crop = crop_qr_from_card(_card if _card is not None else img)
 
     bgra = remove_background(photo_crop)
     if bgra is None:
