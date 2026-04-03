@@ -24,17 +24,8 @@ def get_font(path, size):
     return _font_cache[key]
 
 # ── Background image cache ───────────────────────────────────────
-_bg_front_cache  = None
-_bg_back_cache   = None
-_rembg_session   = None   # loaded once, reused for all requests
-
-def _get_rembg_session():
-    global _rembg_session
-    if _rembg_session is None:
-        from rembg import new_session
-        _rembg_session = new_session("u2net")
-        print("rembg session loaded")
-    return _rembg_session
+_bg_front_cache = None
+_bg_back_cache  = None
 
 def get_bg_front():
     global _bg_front_cache
@@ -132,30 +123,50 @@ def auto_detect_fields_back(lines):
                       'zone_eng':si(5),'woreda_amh':si(6),'woreda_eng':si(7)})
     return found
 
-def remove_background(img_bgr):
-    """Remove background using rembg u2net (cached session — loaded once).
-    Pre-processes with CLAHE to improve edge detection on low-contrast shoulders.
-    Returns BGRA numpy array.
+def remove_background_mediapipe(img_bgr):
+    """Remove background using MediaPipe Selfie Segmentation (~2MB model, memory-efficient).
+    Returns BGRA numpy array: grayscale B&W foreground, transparent background.
+    Falls back to full-opaque grayscale if mediapipe fails.
     """
     try:
-        from rembg import remove as rembg_remove
-        session = _get_rembg_session()
-        # CLAHE pre-processing: boost contrast so shoulders stand out better
-        lab      = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
-        l, a, b  = cv2.split(lab)
-        clahe    = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        l        = clahe.apply(l)
-        enhanced = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
-        _, buf     = cv2.imencode('.png', enhanced)
-        result_png = rembg_remove(buf.tobytes(), session=session)
-        pil  = Image.open(io.BytesIO(result_png)).convert("RGBA")
-        gray = pil.convert('L')
-        _, _, _, a = pil.split()
-        bw   = Image.merge('RGBA', (gray, gray, gray, a))
-        return cv2.cvtColor(np.array(bw), cv2.COLOR_RGBA2BGRA)
+        import mediapipe as mp
+        h, w = img_bgr.shape[:2]
+
+        # MediaPipe requires RGB input
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
+        with mp.solutions.selfie_segmentation.SelfieSegmentation(model_selection=0) as seg:
+            result = seg.process(img_rgb)
+
+        # result.segmentation_mask is float32 0.0–1.0 (1.0 = foreground person)
+        mask_f = result.segmentation_mask  # shape (h, w)
+
+        # Smooth mask edges slightly to avoid hard jagged borders
+        mask_blur = cv2.GaussianBlur(mask_f, (9, 9), 0)
+
+        # Threshold: >0.6 is confident foreground
+        alpha = (mask_blur > 0.6).astype(np.uint8) * 255  # shape (h, w)
+
+        # Grayscale foreground (B&W output as required)
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+        # Assemble BGRA: all 3 color channels = gray, alpha = mask
+        bgra = np.zeros((h, w, 4), dtype=np.uint8)
+        bgra[:, :, 0] = gray   # B
+        bgra[:, :, 1] = gray   # G
+        bgra[:, :, 2] = gray   # R
+        bgra[:, :, 3] = alpha  # A
+
+        return bgra
+
     except Exception as e:
-        print("REMBG ERROR:", e)
-        return None
+        print("MEDIAPIPE BG REMOVE ERROR:", e)
+        # Fallback: grayscale with full opaque alpha (no crash)
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        bw   = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        bgra = cv2.cvtColor(bw, cv2.COLOR_BGR2BGRA)
+        bgra[:, :, 3] = 255
+        return bgra
 
 def extract_white_card(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -396,12 +407,7 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     _card   = extract_white_card(img)
     qr_crop = crop_qr_from_card(_card if _card is not None else img)
 
-    bgra = remove_background(photo_crop)
-    if bgra is None:
-        gray = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-        bw   = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        bgra = cv2.cvtColor(bw, cv2.COLOR_BGR2BGRA)
-        bgra[:,:,3] = 255
+    bgra = remove_background_mediapipe(photo_crop)
 
     photo_pil = Image.fromarray(cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA), 'RGBA')
     photo_buf = io.BytesIO(); photo_pil.save(photo_buf, format="PNG")
@@ -576,3 +582,4 @@ async def generate_back(
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/jpeg",
         headers={"Content-Disposition": "attachment; filename=back.jpg"})
+ፕ
