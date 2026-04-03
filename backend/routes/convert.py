@@ -185,10 +185,10 @@ def crop_photo_by_percent(img):
     Left: 26.15%  Right: 73.85%  Top: 18.75%  Bottom: 47.25%
     """
     h, w = img.shape[:2]
-    x1 = int(w * 0.262)
+    x1 = int(w * 0.260)
     x2 = int(w * 0.738)
     y1 = int(h * 0.189)
-    y2 = int(h * 0.476)
+    y2 = int(h * 0.470)
     return img[y1:y2, x1:x2]
 
 def crop_qr_from_card(card, margin=18):
