@@ -185,10 +185,10 @@ def crop_photo_by_percent(img):
     Left: 26.15%  Right: 73.85%  Top: 18.75%  Bottom: 47.25%
     """
     h, w = img.shape[:2]
-    x1 = int(w * 0.264)
-    x2 = int(w * 0.738)
-    y1 = int(h * 0.189)
-    y2 = int(h * 0.470)
+    x1 = int(w * 0.2615)
+    x2 = int(w * 0.7385)
+    y1 = int(h * 0.1875)
+    y2 = int(h * 0.4725)
     return img[y1:y2, x1:x2]
 
 def crop_qr_from_card(card, margin=18):
@@ -398,8 +398,18 @@ async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
 @router.post("/profile/crop")
 async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
     import base64
-    data  = await file.read()
-    img   = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    data = await file.read()
+
+    # Try cv2 decode; fall back to PIL for unusual formats (HEIC, webp, etc.)
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        try:
+            pil_img = Image.open(io.BytesIO(data)).convert("RGB")
+            img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        except Exception:
+            pass
+    if img is None:
+        raise HTTPException(status_code=400, detail="ምስሉን decode ማድረግ አልተቻለም። JPG ወይም PNG ይጠቀሙ።")
 
     # Photo: percentage-based crop (device-resolution-independent)
     photo_crop = crop_photo_by_percent(img)
