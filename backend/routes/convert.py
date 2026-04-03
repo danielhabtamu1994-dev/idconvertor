@@ -24,8 +24,17 @@ def get_font(path, size):
     return _font_cache[key]
 
 # ── Background image cache ───────────────────────────────────────
-_bg_front_cache = None
-_bg_back_cache  = None
+_bg_front_cache  = None
+_bg_back_cache   = None
+_rembg_session   = None   # loaded once, reused for all requests
+
+def _get_rembg_session():
+    global _rembg_session
+    if _rembg_session is None:
+        from rembg import new_session
+        _rembg_session = new_session("u2net")
+        print("rembg session loaded")
+    return _rembg_session
 
 def get_bg_front():
     global _bg_front_cache
@@ -124,23 +133,22 @@ def auto_detect_fields_back(lines):
     return found
 
 def remove_background(img_bgr):
-    """Remove background using rembg (u2net). Returns BGRA numpy array.
+    """Remove background using rembg u2net (cached session — loaded once).
     Pre-processes with CLAHE to improve edge detection on low-contrast shoulders.
+    Returns BGRA numpy array.
     """
     try:
         from rembg import remove as rembg_remove
-        # Pre-processing: boost contrast with CLAHE so shoulders stand out better
-        lab   = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        l     = clahe.apply(l)
-        lab   = cv2.merge((l, a, b))
-        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-        # Encode to PNG and pass to rembg
+        session = _get_rembg_session()
+        # CLAHE pre-processing: boost contrast so shoulders stand out better
+        lab      = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+        l, a, b  = cv2.split(lab)
+        clahe    = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l        = clahe.apply(l)
+        enhanced = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
         _, buf     = cv2.imencode('.png', enhanced)
-        result_png = rembg_remove(buf.tobytes())
+        result_png = rembg_remove(buf.tobytes(), session=session)
         pil  = Image.open(io.BytesIO(result_png)).convert("RGBA")
-        # Convert to grayscale while keeping alpha mask
         gray = pil.convert('L')
         _, _, _, a = pil.split()
         bw   = Image.merge('RGBA', (gray, gray, gray, a))
