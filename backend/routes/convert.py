@@ -582,4 +582,3 @@ async def generate_back(
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/jpeg",
         headers={"Content-Disposition": "attachment; filename=back.jpg"})
-ፕ
