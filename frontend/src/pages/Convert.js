@@ -3,6 +3,13 @@ import API from '../services/api';
 import { useAuth } from '../services/AuthContext';
 import toast from 'react-hot-toast';
 
+// Rename file to a safe simple name before upload
+function sanitizeFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase() || 'jpg';
+  const safeName = `upload_${Date.now()}.${ext}`;
+  return new File([file], safeName, { type: file.type });
+}
+
 function UploadBox({ label, file, onChange, loading }) {
   const ref = useRef();
   return (
@@ -13,7 +20,7 @@ function UploadBox({ label, file, onChange, loading }) {
         <div style={{ fontSize:26 }}>{loading?'⏳':file?'✅':'📁'}</div>
         <p style={{ fontSize:11 }}>{loading?'Processing...':file?'✅ Ready':'ምስል ምረጥ'}</p>
         <input ref={ref} type="file" accept="image/*" style={{ display:'none' }}
-          onChange={e => onChange(e.target.files[0])} />
+          onChange={e => e.target.files[0] && onChange(sanitizeFile(e.target.files[0]))} />
       </div>
     </div>
   );
@@ -436,7 +443,7 @@ export default function Convert() {
                 {photob64
                   ? <img src={`data:image/png;base64,${photob64}`} alt="photo" style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
                   : <><div style={{fontSize:24}}>🖼️</div><p style={{fontSize:11}}>ፎቶ ምረጥ</p></>}
-                <input ref={manualPhotoRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleManualPhoto(e.target.files[0])}/>
+                <input ref={manualPhotoRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>e.target.files[0]&&handleManualPhoto(sanitizeFile(e.target.files[0]))}/>
               </div>
             </div>
             <div>
@@ -445,7 +452,7 @@ export default function Convert() {
                 {qrb64
                   ? <img src={`data:image/png;base64,${qrb64}`} alt="qr" style={{width:'100%',maxHeight:120,objectFit:'contain',borderRadius:6}}/>
                   : <><div style={{fontSize:24}}>📷</div><p style={{fontSize:11}}>QR ምረጥ</p></>}
-                <input ref={manualQrRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleManualQr(e.target.files[0])}/>
+                <input ref={manualQrRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>e.target.files[0]&&handleManualQr(sanitizeFile(e.target.files[0]))}/>
               </div>
             </div>
           </div>
