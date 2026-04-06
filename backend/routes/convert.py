@@ -400,14 +400,52 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     import base64
     data = await file.read()
 
-    # Try cv2 decode; fall back to PIL for unusual formats (HEIC, webp, etc.)
-    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    # Robust decode: try multiple strategies
+    img = None
+
+    # Strategy 1: standard cv2 decode
+    try:
+        arr = np.frombuffer(data, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    except Exception:
+        pass
+
+    # Strategy 2: cv2 IMREAD_UNCHANGED (handles some edge cases)
+    if img is None:
+        try:
+            arr = np.frombuffer(data, dtype=np.uint8)
+            raw = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)
+            if raw is not None:
+                if len(raw.shape) == 2:
+                    img = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
+                elif raw.shape[2] == 4:
+                    img = cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
+                else:
+                    img = raw
+        except Exception:
+            pass
+
+    # Strategy 3: PIL (handles HEIC, webp, unusual JPEG variants)
     if img is None:
         try:
             pil_img = Image.open(io.BytesIO(data)).convert("RGB")
             img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         except Exception:
             pass
+
+    # Strategy 4: write to temp file and re-read (some decoders need file path)
+    if img is None:
+        try:
+            import tempfile, os
+            suffix = '.jpg'
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+            img = cv2.imread(tmp_path, cv2.IMREAD_COLOR)
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
     if img is None:
         raise HTTPException(status_code=400, detail="ምስሉን decode ማድረግ አልተቻለም። JPG ወይም PNG ይጠቀሙ።")
 
