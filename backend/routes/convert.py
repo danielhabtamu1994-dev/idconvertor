@@ -305,6 +305,139 @@ Return this JSON and nothing else:
 {"phone":"","fin":"","address_amh":"","address_eng":"","zone_amh":"","zone_eng":"","woreda_amh":"","woreda_num":"","woreda_eng":""}"""
 
 
+# ══════════════════════════════════════════════════════════════════
+# Tesseract OCR helpers (Amharic + English fallback)
+# ══════════════════════════════════════════════════════════════════
+def _tesseract_ocr_lines(image_bytes: bytes, lang: str = "amh+eng") -> list[str]:
+    """Run Tesseract on image bytes and return list of non-empty lines."""
+    try:
+        import pytesseract
+        from PIL import Image as _PILImg
+        img = _PILImg.open(io.BytesIO(image_bytes)).convert("RGB")
+        custom_config = r"--oem 1 --psm 6"
+        raw_text = pytesseract.image_to_string(img, lang=lang, config=custom_config)
+        lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+        return lines
+    except Exception as e:
+        print("TESSERACT ERROR:", e)
+        return []
+
+
+def _get_openai_key() -> str:
+    cfg = firebase_get("api_settings") or {}
+    return cfg.get("openai_key", "") or os.getenv("OPENAI_API_KEY", "")
+
+
+GPT_FRONT_SYSTEM = """You are a field-mapper for Ethiopian National ID (Fayda) front side OCR output.
+You receive a numbered list of text lines extracted by Tesseract OCR.
+Your job: identify which LINE NUMBER contains each field.
+Do NOT copy the text value. Return the LINE NUMBER (integer) for each field, or null if not found.
+
+Rules:
+- full_name_amh: line with Ethiopic (Amharic) full name
+- full_name_eng: line with Latin-script full name
+- date_of_birth_greg: line with Gregorian birth date (dd/mm/yyyy or similar)
+- sex: line with sex/gender (ወንድ/Male/ሴት/Female or similar)
+- date_of_expiry_greg: line with expiry date
+- fan: line with a 16-digit number (Fayda Account Number)
+
+Return ONLY raw JSON, no markdown:
+{"full_name_amh": <int|null>, "full_name_eng": <int|null>, "date_of_birth_greg": <int|null>, "sex": <int|null>, "date_of_expiry_greg": <int|null>, "fan": <int|null>}"""
+
+GPT_BACK_SYSTEM = """You are a field-mapper for Ethiopian National ID (Fayda) back side OCR output.
+You receive a numbered list of text lines extracted by Tesseract OCR.
+Your job: identify which LINE NUMBER contains each field.
+Do NOT copy the text value. Return the LINE NUMBER (integer) for each field, or null if not found.
+
+Rules:
+- phone: line with a 10-digit phone number
+- fin: line with a 12-digit FIN number
+- address_amh: line with Ethiopic address text
+- address_eng: line with Latin-script address text
+- zone_amh: line with Ethiopic zone name
+- zone_eng: line with Latin-script zone name
+- woreda_amh: line with Ethiopic woreda name (may include a number)
+- woreda_num: line number that contains the woreda number (same line as woreda_amh usually)
+- woreda_eng: line with Latin-script woreda name
+
+Return ONLY raw JSON, no markdown:
+{"phone": <int|null>, "fin": <int|null>, "address_amh": <int|null>, "address_eng": <int|null>, "zone_amh": <int|null>, "zone_eng": <int|null>, "woreda_amh": <int|null>, "woreda_num": <int|null>, "woreda_eng": <int|null>}"""
+
+
+def _gpt_map_lines(lines: list[str], system_prompt: str, openai_key: str) -> dict:
+    """Send numbered OCR lines to GPT-4.1-nano and get field→line_number mapping."""
+    import requests as _req, json as _j
+    numbered = "\n".join(f"{i+1}. {ln}" for i, ln in enumerate(lines))
+    body = {
+        "model": "gpt-4.1-nano",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"OCR lines:\n{numbered}"}
+        ],
+        "temperature": 0,
+        "max_tokens": 300,
+    }
+    resp = _req.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+        json=body, timeout=30
+    )
+    print("GPT NANO STATUS:", resp.status_code)
+    print("GPT NANO RESP:", resp.text[:600])
+    resp.raise_for_status()
+    rj = _j.loads(resp.text)
+    content = rj["choices"][0]["message"]["content"].strip()
+    s, e = content.find("{"), content.rfind("}")
+    if s != -1 and e != -1:
+        content = content[s:e+1]
+    return _j.loads(content)
+
+
+def _tesseract_front_pipeline(image_bytes: bytes, openai_key: str):
+    """Full Tesseract→GPT pipeline for front ID. Returns (lines, detected, mapping)."""
+    lines = _tesseract_ocr_lines(image_bytes, lang="amh+eng")
+    if not lines:
+        return [], {}, {}
+    mapping = _gpt_map_lines(lines, GPT_FRONT_SYSTEM, openai_key)
+    # Convert to detected format (1-indexed)
+    detected = {}
+    field_map = {
+        "full_name_amh": "full_name",
+        "full_name_eng": "full_name_eng",
+        "date_of_birth_greg": "date_birth",
+        "sex": "sex",
+        "date_of_expiry_greg": "date_expiry",
+        "fan": "fan",
+    }
+    for gpt_key, det_key in field_map.items():
+        v = mapping.get(gpt_key)
+        if v: detected[det_key] = v
+    return lines, detected, mapping
+
+
+def _tesseract_back_pipeline(image_bytes: bytes, openai_key: str):
+    """Full Tesseract→GPT pipeline for back ID. Returns (lines, detected, mapping)."""
+    lines = _tesseract_ocr_lines(image_bytes, lang="amh+eng")
+    if not lines:
+        return [], {}, {}
+    mapping = _gpt_map_lines(lines, GPT_BACK_SYSTEM, openai_key)
+    detected = {}
+    field_map = {
+        "phone": "phone",
+        "fin": "fin",
+        "address_amh": "addr_amh",
+        "address_eng": "addr_eng",
+        "zone_amh": "zone_amh",
+        "zone_eng": "zone_eng",
+        "woreda_amh": "woreda_amh",
+        "woreda_eng": "woreda_eng",
+    }
+    for gpt_key, det_key in field_map.items():
+        v = mapping.get(gpt_key)
+        if v: detected[det_key] = v
+    return lines, detected, mapping
+
+
 def _normalize_sex(raw: str) -> str:
     s = raw.strip().lower()
     if any(x in s for x in ["male","ወንድ","m"]):
@@ -364,8 +497,37 @@ def _gemini_back_to_lines(g: dict):
 
 
 @router.post("/ocr/front")
-async def ocr_front(file: UploadFile = File(...), token=Depends(verify_token)):
+async def ocr_front(
+    file: UploadFile = File(...),
+    mode: str = Form("gemini"),   # "gemini" | "tesseract"
+    token=Depends(verify_token)
+):
     data = await file.read()
+
+    # ── Tesseract + GPT-nano mode ──────────────────────────────────
+    if mode == "tesseract":
+        openai_key = _get_openai_key()
+        if not openai_key:
+            raise HTTPException(status_code=400, detail="OpenAI API key is not configured.")
+        try:
+            lines, detected, mapping = _tesseract_front_pipeline(data, openai_key)
+            if not lines:
+                raise HTTPException(status_code=502, detail="Tesseract returned no text.")
+            return {
+                "lines": lines,
+                "detected": detected,
+                "mapping": mapping,   # field→line_number (GPT output)
+                "source": "tesseract",
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback
+            print("TESSERACT FRONT ERROR:", str(e))
+            print(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"Tesseract/GPT OCR failed: {str(e)}")
+
+    # ── Gemini mode (default) ──────────────────────────────────────
     gemini_key = _get_gemini_key()
     if not gemini_key:
         raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
@@ -380,8 +542,37 @@ async def ocr_front(file: UploadFile = File(...), token=Depends(verify_token)):
         raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
 
 @router.post("/ocr/back")
-async def ocr_back(file: UploadFile = File(...), token=Depends(verify_token)):
+async def ocr_back(
+    file: UploadFile = File(...),
+    mode: str = Form("gemini"),   # "gemini" | "tesseract"
+    token=Depends(verify_token)
+):
     data = await file.read()
+
+    # ── Tesseract + GPT-nano mode ──────────────────────────────────
+    if mode == "tesseract":
+        openai_key = _get_openai_key()
+        if not openai_key:
+            raise HTTPException(status_code=400, detail="OpenAI API key is not configured.")
+        try:
+            lines, detected, mapping = _tesseract_back_pipeline(data, openai_key)
+            if not lines:
+                raise HTTPException(status_code=502, detail="Tesseract returned no text.")
+            return {
+                "lines": lines,
+                "detected": detected,
+                "mapping": mapping,
+                "source": "tesseract",
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback
+            print("TESSERACT BACK ERROR:", str(e))
+            print(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"Tesseract/GPT OCR failed: {str(e)}")
+
+    # ── Gemini mode (default) ──────────────────────────────────────
     gemini_key = _get_gemini_key()
     if not gemini_key:
         raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
