@@ -164,6 +164,7 @@ export default function Settings() {
   const [fieldMapFront, setFieldMapFront] = useState({});
   const [fieldMapBack,  setFieldMapBack]  = useState({});
   const [geminiKey,  setGeminiKey]  = useState('');
+  const [openaiKey,  setOpenaiKey]  = useState('');
   const fgRef = useRef(); const bgRef = useRef();
 
   useEffect(()=>{
@@ -179,6 +180,7 @@ export default function Settings() {
     // Load API settings separately
     API.get('/settings/api-settings').then(({data:a})=>{
       if(a.gemini_key)   setGeminiKey(a.gemini_key);
+      if(a.openai_key)   setOpenaiKey(a.openai_key);
     }).catch(()=>{});
     }).catch(()=>{});
     API.get('/auth/deposit-settings').then(({data})=>{
@@ -204,7 +206,7 @@ export default function Settings() {
 
   const saveApiSettings = async () => {
     try {
-      await API.put('/settings/api-settings', { ocr_mode: 'gemini', gemini_key: geminiKey, gemini_model: 'gemini-2.5-flash' });
+      await API.put('/settings/api-settings', { ocr_mode: 'gemini', gemini_key: geminiKey, gemini_model: 'gemini-2.5-flash', openai_key: openaiKey });
       toast.success('✅ API Settings saved!');
     } catch { toast.error('Failed'); }
   };
@@ -274,6 +276,18 @@ export default function Settings() {
               onChange={e=>setGeminiKey(e.target.value)}/>
             <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
               Google AI Studio → <strong>aistudio.google.com</strong> → Get API Key
+            </p>
+          </div>
+
+          <div className="form-group" style={{marginTop:14}}>
+            <label>🔑 OpenAI API Key <span style={{fontSize:11,fontWeight:400,color:'var(--text-muted)'}}>(Tesseract+GPT-nano mode)</span></label>
+            <input className="form-input"
+              type="password"
+              placeholder="sk-..."
+              value={openaiKey}
+              onChange={e=>setOpenaiKey(e.target.value)}/>
+            <p style={{fontSize:11,color:'var(--text-muted)',marginTop:4}}>
+              platform.openai.com → API Keys — GPT-4.1-nano ለ field mapping ይጠቀማል
             </p>
           </div>
 
