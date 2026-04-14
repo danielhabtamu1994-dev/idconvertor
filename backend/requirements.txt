@@ -10,3 +10,4 @@ python-barcode==0.15.1
 PyJWT==2.8.0
 python-dotenv==1.0.1
 mediapipe==0.10.14
+openai==1.30.1
