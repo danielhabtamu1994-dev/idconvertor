@@ -258,6 +258,7 @@ export default function Convert() {
 
   const [mergedResult, setMergedResult] = useState('');
   const [generating,   setGenerating]   = useState(false);
+  const [ocrMode,      setOcrMode]      = useState('gemini'); // 'gemini' | 'tesseract'
   const [loading,      setLoading]      = useState({});
   const setLoad = (k,v) => setLoading(p=>({...p,[k]:v}));
 
@@ -288,6 +289,7 @@ export default function Convert() {
       try {
         const fd = new FormData();
         fd.append('file', frontFile);
+        fd.append('mode', ocrMode);
         const { data } = await API.post('/convert/ocr/front', fd);
         setFrontLines(data.lines);
         if (!hasSavedMappingRef.current) {
@@ -301,7 +303,7 @@ export default function Convert() {
       } catch { toast.error('Front OCR failed'); }
       finally { setLoad('ocr_front', false); }
     })();
-  }, [frontFile, settingsLoaded]);
+  }, [frontFile, settingsLoaded, ocrMode]);
 
   // ── Auto OCR back ──────────────────────────────────────────────
   useEffect(() => {
@@ -311,6 +313,7 @@ export default function Convert() {
       try {
         const fd = new FormData();
         fd.append('file', backFile);
+        fd.append('mode', ocrMode);
         const { data } = await API.post('/convert/ocr/back', fd);
         setBackLines(data.lines);
         if (!hasSavedMappingRef.current) {
@@ -327,7 +330,7 @@ export default function Convert() {
       } catch { toast.error('Back OCR failed'); }
       finally { setLoad('ocr_back', false); }
     })();
-  }, [backFile, settingsLoaded]);
+  }, [backFile, settingsLoaded, ocrMode]);
 
   // ── Auto crop profile ──────────────────────────────────────────
   useEffect(() => {
@@ -423,6 +426,29 @@ export default function Convert() {
   return (
     <div>
       <h1 className="page-title">🪪 ID Convert</h1>
+
+      {/* OCR Mode Selector */}
+      <div className="card" style={{paddingTop:12,paddingBottom:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <span style={{fontSize:12,fontWeight:700,color:'var(--text-muted)'}}>🔍 OCR Engine:</span>
+          {[
+            {val:'gemini',   label:'🤖 Gemini Vision'},
+            {val:'tesseract',label:'📝 Tesseract + GPT-nano'},
+          ].map(({val,label})=>(
+            <button key={val}
+              className={`btn btn-sm ${ocrMode===val?'btn-primary':'btn-outline'}`}
+              style={{fontSize:12,padding:'5px 14px'}}
+              onClick={()=>setOcrMode(val)}>
+              {label}
+            </button>
+          ))}
+          <span style={{fontSize:11,color:'var(--text-muted)',marginLeft:'auto'}}>
+            {ocrMode==='gemini'
+              ? '✅ Gemini — ቀጥታ JSON OCR'
+              : '✅ Tesseract (Amharic) → numbered lines → GPT-nano mapping'}
+          </span>
+        </div>
+      </div>
 
       <div className="card">
         <div className="grid-3">
