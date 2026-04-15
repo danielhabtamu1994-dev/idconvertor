@@ -191,6 +191,73 @@ def crop_photo_by_percent(img):
     y2 = int(h * 0.4725)
     return img[y1:y2, x1:x2]
 
+# ── Single mode crop percentages (edit these values as needed) ────
+SINGLE_PHOTO_LEFT   = 0.2615
+SINGLE_PHOTO_RIGHT  = 0.7385
+SINGLE_PHOTO_TOP    = 0.1875
+SINGLE_PHOTO_BOTTOM = 0.4725
+
+# ── Light mode crop percentages (edit these values as needed) ─────
+LIGHT_PHOTO_LEFT   = 0.2615
+LIGHT_PHOTO_RIGHT  = 0.7385
+LIGHT_PHOTO_TOP    = 0.1875
+LIGHT_PHOTO_BOTTOM = 0.4725
+
+def crop_photo_single(img):
+    """Single mode: separate crop percentages from default."""
+    h, w = img.shape[:2]
+    return img[int(h*SINGLE_PHOTO_TOP):int(h*SINGLE_PHOTO_BOTTOM),
+               int(w*SINGLE_PHOTO_LEFT):int(w*SINGLE_PHOTO_RIGHT)]
+
+def crop_photo_light(img):
+    """Light mode: separate crop percentages from default."""
+    h, w = img.shape[:2]
+    return img[int(h*LIGHT_PHOTO_TOP):int(h*LIGHT_PHOTO_BOTTOM),
+               int(w*LIGHT_PHOTO_LEFT):int(w*LIGHT_PHOTO_RIGHT)]
+
+# ── GitHub static QR (used by single + light modes) ──────────────
+GITHUB_QR_URL = os.getenv("GITHUB_QR_URL",
+    "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/qr1.png")
+
+def _fetch_github_qr() -> bytes | None:
+    """Download the static QR image from GitHub. Returns PNG bytes or None."""
+    try:
+        resp = req_lib.get(GITHUB_QR_URL, timeout=10)
+        if resp.ok:
+            return resp.content
+    except Exception as e:
+        print("GITHUB QR FETCH ERROR:", e)
+    return None
+
+# ── OCR image preprocessing: grayscale + thresholding ────────────
+def preprocess_for_ocr(image_bytes: bytes, method: str = "adaptive") -> bytes:
+    """
+    Convert image to grayscale and apply thresholding for better OCR accuracy.
+    method: 'adaptive' (cv2.adaptiveThreshold) | 'otsu' (Otsu binarization)
+    Returns PNG bytes of preprocessed image.
+    """
+    arr = np.frombuffer(image_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    if method == "otsu":
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    else:  # adaptive (default — handles uneven lighting better)
+        thresh = cv2.adaptiveThreshold(
+            gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            blockSize=31,
+            C=10
+        )
+
+    ok, buf = cv2.imencode(".png", thresh)
+    return buf.tobytes() if ok else image_bytes
+
 def crop_qr_from_card(card, margin=18):
     gray = cv2.cvtColor(card, cv2.COLOR_BGR2GRAY)
     ch, cw = card.shape[:2]
@@ -395,7 +462,11 @@ def _gpt_map_lines(lines: list[str], system_prompt: str, openai_key: str) -> dic
 
 def _tesseract_front_pipeline(image_bytes: bytes, openai_key: str):
     """Full Tesseract→GPT pipeline for front ID. Returns (lines, detected, mapping)."""
-    lines = _tesseract_ocr_lines(image_bytes, lang="amh+eng")
+    # Preprocess: grayscale + adaptive threshold for better Amharic OCR
+    processed = preprocess_for_ocr(image_bytes, method="adaptive")
+    lines = _tesseract_ocr_lines(processed, lang="amh+eng")
+    if not lines:  # fallback to raw image
+        lines = _tesseract_ocr_lines(image_bytes, lang="amh+eng")
     if not lines:
         return [], {}, {}
     mapping = _gpt_map_lines(lines, GPT_FRONT_SYSTEM, openai_key)
@@ -417,7 +488,10 @@ def _tesseract_front_pipeline(image_bytes: bytes, openai_key: str):
 
 def _tesseract_back_pipeline(image_bytes: bytes, openai_key: str):
     """Full Tesseract→GPT pipeline for back ID. Returns (lines, detected, mapping)."""
-    lines = _tesseract_ocr_lines(image_bytes, lang="amh+eng")
+    processed = preprocess_for_ocr(image_bytes, method="adaptive")
+    lines = _tesseract_ocr_lines(processed, lang="amh+eng")
+    if not lines:
+        lines = _tesseract_ocr_lines(image_bytes, lang="amh+eng")
     if not lines:
         return [], {}, {}
     mapping = _gpt_map_lines(lines, GPT_BACK_SYSTEM, openai_key)
@@ -435,6 +509,73 @@ def _tesseract_back_pipeline(image_bytes: bytes, openai_key: str):
     for gpt_key, det_key in field_map.items():
         v = mapping.get(gpt_key)
         if v: detected[det_key] = v
+    return lines, detected, mapping
+
+
+def _easyocr_lines(image_bytes: bytes, langs: list = None) -> list[str]:
+    """Run EasyOCR on image bytes and return list of non-empty lines."""
+    try:
+        import easyocr
+        _langs = langs or ['am', 'en']
+        reader = easyocr.Reader(_langs, gpu=False, verbose=False)
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        results = reader.readtext(img, detail=0, paragraph=False)
+        lines = [ln.strip() for ln in results if ln.strip()]
+        return lines
+    except Exception as e:
+        print("EASYOCR ERROR:", e)
+        return []
+
+
+def _easyocr_front_pipeline(image_bytes: bytes, openai_key: str):
+    """Full EasyOCR→GPT pipeline for front ID. Returns (lines, detected, mapping)."""
+    processed = preprocess_for_ocr(image_bytes, method="adaptive")
+    lines = _easyocr_lines(processed, langs=['am', 'en'])
+    if not lines:
+        lines = _easyocr_lines(image_bytes, langs=['am', 'en'])
+    if not lines:
+        return [], {}, {}
+    mapping = _gpt_map_lines(lines, GPT_FRONT_SYSTEM, openai_key)
+    detected = {}
+    field_map = {
+        "full_name_amh": "full_name",
+        "full_name_eng": "full_name_eng",
+        "date_of_birth_greg": "date_birth",
+        "sex": "sex",
+        "date_of_expiry_greg": "date_expiry",
+        "fan": "fan",
+    }
+    for gpt_key, det_key in field_map.items():
+        v = mapping.get(gpt_key)
+        if v:
+            detected[det_key] = v
+    return lines, detected, mapping
+
+
+def _easyocr_back_pipeline(image_bytes: bytes, openai_key: str):
+    """Full EasyOCR→GPT pipeline for back ID. Returns (lines, detected, mapping)."""
+    processed = preprocess_for_ocr(image_bytes, method="adaptive")
+    lines = _easyocr_lines(processed, langs=['am', 'en'])
+    if not lines:
+        lines = _easyocr_lines(image_bytes, langs=['am', 'en'])
+    if not lines:
+        return [], {}, {}
+    mapping = _gpt_map_lines(lines, GPT_BACK_SYSTEM, openai_key)
+    detected = {}
+    field_map = {
+        "phone": "phone", "fin": "fin",
+        "address_amh": "addr_amh", "address_eng": "addr_eng",
+        "zone_amh": "zone_amh", "zone_eng": "zone_eng",
+        "woreda_amh": "woreda_amh", "woreda_eng": "woreda_eng",
+    }
+    for gpt_key, det_key in field_map.items():
+        v = mapping.get(gpt_key)
+        if v:
+            detected[det_key] = v
     return lines, detected, mapping
 
 
@@ -499,7 +640,7 @@ def _gemini_back_to_lines(g: dict):
 @router.post("/ocr/front")
 async def ocr_front(
     file: UploadFile = File(...),
-    mode: str = Form("gemini"),   # "gemini" | "tesseract"
+    mode: str = Form("gemini"),   # "gemini" | "tesseract" | "easyocr" | "single" | "light"
     token=Depends(verify_token)
 ):
     data = await file.read()
@@ -513,19 +654,54 @@ async def ocr_front(
             lines, detected, mapping = _tesseract_front_pipeline(data, openai_key)
             if not lines:
                 raise HTTPException(status_code=502, detail="Tesseract returned no text.")
-            return {
-                "lines": lines,
-                "detected": detected,
-                "mapping": mapping,   # field→line_number (GPT output)
-                "source": "tesseract",
-            }
+            return {"lines": lines, "detected": detected, "mapping": mapping, "source": "tesseract"}
         except HTTPException:
             raise
         except Exception as e:
-            import traceback
-            print("TESSERACT FRONT ERROR:", str(e))
-            print(traceback.format_exc())
+            import traceback; print("TESSERACT FRONT ERROR:", str(e)); print(traceback.format_exc())
             raise HTTPException(status_code=502, detail=f"Tesseract/GPT OCR failed: {str(e)}")
+
+    # ── EasyOCR + GPT-nano mode ────────────────────────────────────
+    if mode == "easyocr":
+        openai_key = _get_openai_key()
+        if not openai_key:
+            raise HTTPException(status_code=400, detail="OpenAI API key is not configured.")
+        try:
+            lines, detected, mapping = _easyocr_front_pipeline(data, openai_key)
+            if not lines:
+                raise HTTPException(status_code=502, detail="EasyOCR returned no text.")
+            return {"lines": lines, "detected": detected, "mapping": mapping, "source": "easyocr"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback; print("EASYOCR FRONT ERROR:", str(e)); print(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"EasyOCR/GPT OCR failed: {str(e)}")
+
+    # ── Single mode — uses Gemini OCR, separate crop (no QR needed) ─
+    if mode == "single":
+        gemini_key = _get_gemini_key()
+        if not gemini_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
+        try:
+            g = _gemini_ocr(data, PROMPT_FRONT, gemini_key)
+            lines, detected = _gemini_front_to_lines(g)
+            return {"lines": lines, "detected": detected, "source": "single"}
+        except Exception as e:
+            import traceback; print("SINGLE FRONT ERROR:", str(e)); print(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"Single mode OCR failed: {str(e)}")
+
+    # ── Light mode — uses Gemini OCR, expiry computed from issue date ─
+    if mode == "light":
+        gemini_key = _get_gemini_key()
+        if not gemini_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
+        try:
+            g = _gemini_ocr(data, PROMPT_FRONT, gemini_key)
+            lines, detected = _gemini_front_to_lines(g)
+            return {"lines": lines, "detected": detected, "source": "light"}
+        except Exception as e:
+            import traceback; print("LIGHT FRONT ERROR:", str(e)); print(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"Light mode OCR failed: {str(e)}")
 
     # ── Gemini mode (default) ──────────────────────────────────────
     gemini_key = _get_gemini_key()
@@ -536,15 +712,13 @@ async def ocr_front(
         lines, detected = _gemini_front_to_lines(g)
         return {"lines": lines, "detected": detected, "source": "gemini"}
     except Exception as e:
-        import traceback
-        print("GEMINI FRONT ERROR:", str(e))
-        print(traceback.format_exc())
+        import traceback; print("GEMINI FRONT ERROR:", str(e)); print(traceback.format_exc())
         raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
 
 @router.post("/ocr/back")
 async def ocr_back(
     file: UploadFile = File(...),
-    mode: str = Form("gemini"),   # "gemini" | "tesseract"
+    mode: str = Form("gemini"),   # "gemini" | "tesseract" | "easyocr" | "single" | "light"
     token=Depends(verify_token)
 ):
     data = await file.read()
@@ -558,19 +732,41 @@ async def ocr_back(
             lines, detected, mapping = _tesseract_back_pipeline(data, openai_key)
             if not lines:
                 raise HTTPException(status_code=502, detail="Tesseract returned no text.")
-            return {
-                "lines": lines,
-                "detected": detected,
-                "mapping": mapping,
-                "source": "tesseract",
-            }
+            return {"lines": lines, "detected": detected, "mapping": mapping, "source": "tesseract"}
         except HTTPException:
             raise
         except Exception as e:
-            import traceback
-            print("TESSERACT BACK ERROR:", str(e))
-            print(traceback.format_exc())
+            import traceback; print("TESSERACT BACK ERROR:", str(e)); print(traceback.format_exc())
             raise HTTPException(status_code=502, detail=f"Tesseract/GPT OCR failed: {str(e)}")
+
+    # ── EasyOCR + GPT-nano mode ────────────────────────────────────
+    if mode == "easyocr":
+        openai_key = _get_openai_key()
+        if not openai_key:
+            raise HTTPException(status_code=400, detail="OpenAI API key is not configured.")
+        try:
+            lines, detected, mapping = _easyocr_back_pipeline(data, openai_key)
+            if not lines:
+                raise HTTPException(status_code=502, detail="EasyOCR returned no text.")
+            return {"lines": lines, "detected": detected, "mapping": mapping, "source": "easyocr"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback; print("EASYOCR BACK ERROR:", str(e)); print(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"EasyOCR/GPT OCR failed: {str(e)}")
+
+    # ── Single / Light modes — back side uses Gemini OCR ──────────
+    if mode in ("single", "light"):
+        gemini_key = _get_gemini_key()
+        if not gemini_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is not configured.")
+        try:
+            g = _gemini_ocr(data, PROMPT_BACK, gemini_key)
+            lines, detected = _gemini_back_to_lines(g)
+            return {"lines": lines, "detected": detected, "source": mode}
+        except Exception as e:
+            import traceback; print(f"{mode.upper()} BACK ERROR:", str(e)); print(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"{mode} mode back OCR failed: {str(e)}")
 
     # ── Gemini mode (default) ──────────────────────────────────────
     gemini_key = _get_gemini_key()
@@ -581,13 +777,15 @@ async def ocr_back(
         lines, detected = _gemini_back_to_lines(g)
         return {"lines": lines, "detected": detected, "source": "gemini"}
     except Exception as e:
-        import traceback
-        print("GEMINI BACK ERROR:", str(e))
-        print(traceback.format_exc())
+        import traceback; print("GEMINI BACK ERROR:", str(e)); print(traceback.format_exc())
         raise HTTPException(status_code=502, detail=f"Gemini OCR failed: {str(e)}")
 
 @router.post("/profile/crop")
-async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)):
+async def crop_profile(
+    file: UploadFile = File(...),
+    mode: str = Form("gemini"),   # "gemini"|"tesseract"|"easyocr"|"single"|"light"
+    token=Depends(verify_token)
+):
     import base64
     data = await file.read()
 
@@ -640,23 +838,40 @@ async def crop_profile(file: UploadFile = File(...), token=Depends(verify_token)
     if img is None:
         raise HTTPException(status_code=400, detail="ምስሉን decode ማድረግ አልተቻለም። JPG ወይም PNG ይጠቀሙ።")
 
-    # Photo: percentage-based crop (device-resolution-independent)
-    photo_crop = crop_photo_by_percent(img)
-    # QR: original logic — detect white card first, then crop QR from it
-    _card   = extract_white_card(img)
-    qr_crop = crop_qr_from_card(_card if _card is not None else img)
+    # ── Choose crop function based on mode ────────────────────────
+    if mode == "single":
+        photo_crop = crop_photo_single(img)
+    elif mode == "light":
+        photo_crop = crop_photo_light(img)
+    else:
+        photo_crop = crop_photo_by_percent(img)
+
+    # ── QR: single/light → GitHub static QR; others → auto-detect ─
+    qr_bytes = None
+    if mode in ("single", "light"):
+        qr_bytes = _fetch_github_qr()
+
+    if qr_bytes:
+        qr_pil = Image.open(io.BytesIO(qr_bytes)).convert("RGB")
+        qr_buf = io.BytesIO()
+        qr_pil.save(qr_buf, format="PNG")
+        qr_b64 = base64.b64encode(qr_buf.getvalue()).decode()
+    else:
+        _card   = extract_white_card(img)
+        qr_crop = crop_qr_from_card(_card if _card is not None else img)
+        qr_pil  = Image.fromarray(cv2.cvtColor(qr_crop, cv2.COLOR_BGR2RGB))
+        qr_buf  = io.BytesIO()
+        qr_pil.save(qr_buf, format="PNG")
+        qr_b64  = base64.b64encode(qr_buf.getvalue()).decode()
 
     bgra = remove_background_mediapipe(photo_crop)
-
     photo_pil = Image.fromarray(cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA), 'RGBA')
-    photo_buf = io.BytesIO(); photo_pil.save(photo_buf, format="PNG")
-
-    qr_pil = Image.fromarray(cv2.cvtColor(qr_crop, cv2.COLOR_BGR2RGB))
-    qr_buf = io.BytesIO(); qr_pil.save(qr_buf, format="PNG")
+    photo_buf = io.BytesIO()
+    photo_pil.save(photo_buf, format="PNG")
 
     return {
         "photo_b64": base64.b64encode(photo_buf.getvalue()).decode(),
-        "qr_b64":    base64.b64encode(qr_buf.getvalue()).decode(),
+        "qr_b64":    qr_b64,
     }
 
 
@@ -685,6 +900,7 @@ async def generate_front(
     fan_digits: str = Form(""),
     field_nums: str = Form("{}"),
     ocr_lines:  str = Form("[]"),
+    ocr_mode:   str = Form("gemini"),
     token=Depends(verify_token)
 ):
     import json, base64, datetime as _dt
@@ -703,6 +919,23 @@ async def generate_front(
         idx = int(n)-1
         return lines[idx] if 0 <= idx < len(lines) else ""
 
+    # ── Light mode: expiry = today + 8 years ─────────────────────
+    if ocr_mode == "light":
+        import calendar as _cal
+        exp_year  = today.year + 8
+        exp_month = today.month
+        # Handle Feb 29 → Feb 28 in non-leap years
+        max_day   = _cal.monthrange(exp_year, exp_month)[1]
+        exp_day   = min(today.day, max_day)
+        exp_date  = _dt.date(exp_year, exp_month, exp_day)
+        ENG_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        exp_greg  = exp_date.strftime("%Y/%m/%d")     # 2034/08/01
+        exp_greg2 = f"{exp_year}/{ENG_MONTHS[exp_month-1]}/{exp_day:02d}"  # 2034/Aug/01
+        exp_display = f"{exp_greg} | {exp_greg2}"
+        expiry_text = exp_display
+    else:
+        expiry_text = safe(fn.get('exp_n', 12))
+
     bg   = get_bg_front()
     draw = ImageDraw.Draw(bg)
     tc   = (45,25,5)
@@ -711,7 +944,7 @@ async def generate_front(
     draw_smart_text(draw, (p.get('eng_x',620),p.get('eng_y',268)), safe(fn.get('eng_n',6)),  sz.get('eng',32),sz.get('eng',32),tc)
     draw_smart_text(draw, (p.get('dob_x',700),p.get('dob_y',390)), safe(fn.get('dob_n',8)),  sz.get('dob',28),sz.get('dob',28),tc)
     draw_smart_text(draw, (p.get('sex_x',620),p.get('sex_y',470)), safe(fn.get('sex_n',10)), sz.get('sex',28),sz.get('sex',28),tc)
-    draw_smart_text(draw, (p.get('exp_x',710),p.get('exp_y',555)), safe(fn.get('exp_n',12)), sz.get('exp',28),sz.get('exp',28),tc)
+    draw_smart_text(draw, (p.get('exp_x',710),p.get('exp_y',555)), expiry_text,               sz.get('exp',28),sz.get('exp',28),tc)
     # Date of Issue — rotated 90° (vertical, like on real ID)
     def draw_rotated(bg_img, text, x, y, font_size, fill):
         from PIL import Image as _Img, ImageDraw as _IDraw
