@@ -254,11 +254,15 @@ export default function Convert() {
       }
     }).catch(()=>{})
     .finally(()=>{ setSettingsLoaded(true); });  // always unblock
+    // Load OCR mode from api-settings
+    API.get('/settings/api-settings').then(({data:a})=>{
+      if(a.active_ocr_mode) setOcrMode(a.active_ocr_mode);
+    }).catch(()=>{});
   },[]);
 
   const [mergedResult, setMergedResult] = useState('');
   const [generating,   setGenerating]   = useState(false);
-  const [ocrMode,      setOcrMode]      = useState('gemini'); // 'gemini' | 'tesseract'
+  const [ocrMode,      setOcrMode]      = useState('gemini'); // loaded from Firebase
   const [loading,      setLoading]      = useState({});
   const setLoad = (k,v) => setLoading(p=>({...p,[k]:v}));
 
@@ -340,6 +344,7 @@ export default function Convert() {
       try {
         const fd = new FormData();
         fd.append('file', profileFile);
+        fd.append('mode', ocrMode);
         const { data } = await API.post('/convert/profile/crop', fd);
         setPhotob64(data.photo_b64);
         setQrb64(data.qr_b64);
@@ -388,6 +393,7 @@ export default function Convert() {
       fdF.append('fan_digits', fanManual);
       fdF.append('field_nums', JSON.stringify(fn));
       fdF.append('ocr_lines',  JSON.stringify(frontLines));
+      fdF.append('ocr_mode',   ocrMode);
       const respF = await API.post('/convert/generate/front', fdF, { responseType:'blob' });
       const frontUrl = URL.createObjectURL(respF.data);
 
@@ -427,27 +433,15 @@ export default function Convert() {
     <div>
       <h1 className="page-title">🪪 ID Convert</h1>
 
-      {/* OCR Mode Selector */}
-      <div className="card" style={{paddingTop:12,paddingBottom:12}}>
-        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-          <span style={{fontSize:12,fontWeight:700,color:'var(--text-muted)'}}>🔍 OCR Engine:</span>
-          {[
-            {val:'gemini',   label:'🤖 Gemini Vision'},
-            {val:'tesseract',label:'📝 Tesseract + GPT-nano'},
-          ].map(({val,label})=>(
-            <button key={val}
-              className={`btn btn-sm ${ocrMode===val?'btn-primary':'btn-outline'}`}
-              style={{fontSize:12,padding:'5px 14px'}}
-              onClick={()=>setOcrMode(val)}>
-              {label}
-            </button>
-          ))}
-          <span style={{fontSize:11,color:'var(--text-muted)',marginLeft:'auto'}}>
-            {ocrMode==='gemini'
-              ? '✅ Gemini — ቀጥታ JSON OCR'
-              : '✅ Tesseract (Amharic) → numbered lines → GPT-nano mapping'}
-          </span>
-        </div>
+      {/* Active OCR mode indicator */}
+      <div style={{marginBottom:10,display:'flex',alignItems:'center',gap:8}}>
+        <span style={{fontSize:11,color:'var(--text-muted)'}}>🔍 OCR Mode:</span>
+        <span style={{fontSize:12,fontWeight:700,padding:'2px 10px',borderRadius:20,
+          background:'rgba(59,130,246,0.12)',color:'var(--primary)'}}>
+          {{'gemini':'🤖 Gemini','tesseract':'📝 Tesseract+GPT','easyocr':'👁️ EasyOCR+GPT',
+            'single':'📄 Single','light':'💡 Light'}[ocrMode]||ocrMode}
+        </span>
+        <span style={{fontSize:10,color:'var(--text-muted)'}}>— Settings ውስጥ ይቀይሩ</span>
       </div>
 
       <div className="card">
