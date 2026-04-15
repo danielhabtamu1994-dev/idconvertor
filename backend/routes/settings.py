@@ -17,10 +17,11 @@ class SettingsPayload(BaseModel):
     field_map_back:   dict[str, Any] = {}
 
 class ApiSettingsPayload(BaseModel):
-    ocr_mode:    str = "normal"   # "normal" or "gemini"
-    gemini_key:  str = ""
-    gemini_model: str = "gemini-2.5-flash"
-    openai_key:  str = ""
+    ocr_mode:        str = "normal"
+    gemini_key:      str = ""
+    gemini_model:    str = "gemini-2.5-flash"
+    openai_key:      str = ""
+    active_ocr_mode: str = "gemini"   # "gemini"|"tesseract"|"easyocr"|"single"|"light"
 
 @router.get("/")
 def load_settings(token: dict = Depends(verify_token)):
@@ -36,10 +37,11 @@ def save_settings(payload: SettingsPayload, token: dict = Depends(require_admin)
 def load_api_settings(token: dict = Depends(require_admin)):
     data = firebase_get("api_settings") or {}
     return {
-        "ocr_mode":    data.get("ocr_mode",    "normal"),
-        "gemini_key":  data.get("gemini_key",  ""),
-        "gemini_model":data.get("gemini_model","gemini-2.5-flash"),
-        "openai_key":  data.get("openai_key",  ""),
+        "ocr_mode":        data.get("ocr_mode",        "normal"),
+        "gemini_key":      data.get("gemini_key",      ""),
+        "gemini_model":    data.get("gemini_model",    "gemini-2.5-flash"),
+        "openai_key":      data.get("openai_key",      ""),
+        "active_ocr_mode": data.get("active_ocr_mode", "gemini"),
     }
 
 @router.put("/api-settings")
