@@ -165,6 +165,7 @@ export default function Settings() {
   const [fieldMapBack,  setFieldMapBack]  = useState({});
   const [geminiKey,  setGeminiKey]  = useState('');
   const [openaiKey,  setOpenaiKey]  = useState('');
+  const [ocrMode,    setOcrMode]    = useState('gemini');
   const fgRef = useRef(); const bgRef = useRef();
 
   useEffect(()=>{
@@ -181,6 +182,7 @@ export default function Settings() {
     API.get('/settings/api-settings').then(({data:a})=>{
       if(a.gemini_key)   setGeminiKey(a.gemini_key);
       if(a.openai_key)   setOpenaiKey(a.openai_key);
+      if(a.active_ocr_mode) setOcrMode(a.active_ocr_mode);
     }).catch(()=>{});
     }).catch(()=>{});
     API.get('/auth/deposit-settings').then(({data})=>{
@@ -206,7 +208,11 @@ export default function Settings() {
 
   const saveApiSettings = async () => {
     try {
-      await API.put('/settings/api-settings', { ocr_mode: 'gemini', gemini_key: geminiKey, gemini_model: 'gemini-2.5-flash', openai_key: openaiKey });
+      await API.put('/settings/api-settings', {
+        ocr_mode: 'gemini', gemini_key: geminiKey,
+        gemini_model: 'gemini-2.5-flash', openai_key: openaiKey,
+        active_ocr_mode: ocrMode,
+      });
       toast.success('✅ API Settings saved!');
     } catch { toast.error('Failed'); }
   };
@@ -267,7 +273,35 @@ export default function Settings() {
         <div className="card" style={{maxWidth:480}}>
           <p className="card-title">🤖 Gemini OCR — 2.5 Flash</p>
 
+          {/* ── OCR Mode Selector ── */}
           <div className="form-group">
+            <label style={{fontWeight:700}}>🔍 OCR Mode (ይምረጡ — ይቀመጣል)</label>
+            <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:8}}>
+              {[
+                {val:'gemini',    label:'🤖 Gemini Vision',          desc:'ቀጥታ JSON — ፈጣን ነው'},
+                {val:'tesseract', label:'📝 Tesseract + GPT-nano',    desc:'Amharic Tesseract → numbered lines → GPT mapping'},
+                {val:'easyocr',   label:'👁️ EasyOCR + GPT-nano',     desc:'EasyOCR (Amharic) → numbered lines → GPT mapping'},
+                {val:'single',    label:'📄 Single Mode',             desc:'ምስሉ ሙሉ ካርድ (no QR) — GitHub QR ይጠቀማል'},
+                {val:'light',     label:'💡 Light Mode',              desc:'ምስሉ ቀላል ካርድ — expiry = issue + 8 years, GitHub QR'},
+              ].map(({val,label,desc})=>(
+                <label key={val} style={{
+                  display:'flex',alignItems:'flex-start',gap:10,cursor:'pointer',
+                  padding:'8px 12px',borderRadius:8,border:`2px solid ${ocrMode===val?'var(--primary)':'var(--border)'}`,
+                  background:ocrMode===val?'rgba(59,130,246,0.07)':'transparent',transition:'all .15s',
+                }}>
+                  <input type="radio" name="ocrMode" value={val}
+                    checked={ocrMode===val} onChange={()=>setOcrMode(val)}
+                    style={{marginTop:3,accentColor:'var(--primary)'}}/>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:13}}>{label}</div>
+                    <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>{desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="form-group" style={{marginTop:16}}>
             <label>🔑 Gemini API Key</label>
             <input className="form-input"
               type="password"
@@ -280,7 +314,7 @@ export default function Settings() {
           </div>
 
           <div className="form-group" style={{marginTop:14}}>
-            <label>🔑 OpenAI API Key <span style={{fontSize:11,fontWeight:400,color:'var(--text-muted)'}}>(Tesseract+GPT-nano mode)</span></label>
+            <label>🔑 OpenAI API Key <span style={{fontSize:11,fontWeight:400,color:'var(--text-muted)'}}>(Tesseract / EasyOCR + GPT-nano modes)</span></label>
             <input className="form-input"
               type="password"
               placeholder="sk-..."
